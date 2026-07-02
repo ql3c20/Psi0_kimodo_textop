@@ -155,6 +155,7 @@ def main() -> int:
     parser.add_argument("--cuda-visible-devices", help="Override CUDA_VISIBLE_DEVICES.")
     parser.add_argument("--master-port", type=int, help="Override torchrun master port.")
     parser.add_argument("--num-gpus", type=int, help="Override launcher --num-gpus.")
+    parser.add_argument("--use-wandb", action="store_true", help="Enable Weights & Biases logging.")
     parser.add_argument("--dry-run", action="store_true", help="Print command and exit.")
     args = parser.parse_args()
 
@@ -196,6 +197,8 @@ def main() -> int:
         launcher_args["output_dir"] = args.output_dir
     if args.base_model_path:
         launcher_args["base_model_path"] = args.base_model_path
+    if args.use_wandb:
+        launcher_args["use_wandb"] = True
     if args.num_gpus is not None:
         launcher_args["num_gpus"] = args.num_gpus
     elif launcher_args.get("num_gpus") is None:
@@ -203,6 +206,10 @@ def main() -> int:
 
     for key, value in preset.get("env", {}).items():
         env[str(key)] = str(value)
+    dataset_path = launcher_args.get("dataset_path")
+    if dataset_path is not None:
+        env["DATASET_PATH"] = str(dataset_path)
+        env["SIMPLE_DATASET_PATH"] = str(dataset_path)
 
     cmd = [
         str(GR00T_PYTHON),

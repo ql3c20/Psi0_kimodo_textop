@@ -2,7 +2,7 @@
 
 set -e
 
-export CUDA_VISIBLE_DEVICES=0
+export CUDA_VISIBLE_DEVICES=${SERVE_GPU:-${CUDA_VISIBLE_DEVICES:-0}}
 export PYTHONPATH="${PYTHONPATH}:$(pwd)/src"
 
 source .venv-dp/bin/activate

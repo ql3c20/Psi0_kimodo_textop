@@ -100,7 +100,7 @@ if __name__ == "__main__":
     config.training.max_steps = ft_config.max_steps
     config.training.weight_decay = ft_config.weight_decay
     config.training.warmup_ratio = ft_config.warmup_ratio
-    config.training.wandb_project = "finetune-gr00t-n1d6"
+    config.training.wandb_project = os.environ.get("WANDB_PROJECT", "finetune-gr00t-n1d6")
 
     config.data.shard_size = ft_config.shard_size
     config.data.episode_sampling_rate = ft_config.episode_sampling_rate

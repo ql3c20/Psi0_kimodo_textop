@@ -359,6 +359,11 @@ class RealRepackTransform(LerobotRepackTransform):
 class SimpleRepackTransform(LerobotRepackTransform):
     dataset_name: str = "simple"
 
+    image_key: str = "observation.images.egocentric"
+    state_key: str = "states"
+    action_key: str = "action"
+    instruction_key: str = "task"
+
     num_past_frames: int = 0 # single current frame
     action_chunk_size: int = 30
 
@@ -367,17 +372,19 @@ class SimpleRepackTransform(LerobotRepackTransform):
 
     def delta_timestamps(self, fps: int):
         return {
-            "observation.images.egocentric": [-t/fps for t in range(self.num_past_frames, -1, -1)],
-            "states": [-t/fps for t in range(self.num_past_frames, -1, -1)],
-            "action": [t/fps for t in range(self.action_chunk_size)]
+            self.image_key: [-t/fps for t in range(self.num_past_frames, -1, -1)],
+            self.state_key: [-t/fps for t in range(self.num_past_frames, -1, -1)],
+            self.action_key: [t/fps for t in range(self.action_chunk_size)]
         }
  
 
     def __call__(self, data: dict[str, Any], **kwargs) -> dict[str, Any]:
-        image_key = "observation.images.egocentric"
-        states = data["states"].numpy() # (To, Ds)
-        actions = data["action"].numpy() # (Tp, Da)
-        action_is_pad = data["action_is_pad"].numpy() # (Ta,) 
+        states = data[self.state_key].numpy() # (To, Ds)
+        actions = data[self.action_key].numpy() # (Tp, Da)
+        pad_key = f"{self.action_key}_is_pad"
+        if pad_key not in data:
+            pad_key = "action_is_pad"
+        action_is_pad = data[pad_key].numpy() # (Ta,)
         pad_mask = np.ones_like(actions) * (1. - action_is_pad[...,None].astype(np.float32))
 
         states, _ = pad_to_len(states, self.pad_state_dim) if self.pad_state_dim is not None else (states, None)
@@ -388,11 +395,11 @@ class SimpleRepackTransform(LerobotRepackTransform):
             mask = np.ones_like(actions, dtype=np.float32)
 
         return {
-            "observations": [pt_to_pil(data[image_key],normalized=False)], # single view
+            "observations": [pt_to_pil(data[self.image_key],normalized=False)], # single view
             "states": states.astype(np.float32), # (To, Do)
             "actions": actions.astype(np.float32), # (Tp, Da)
             # "action_is_pad": np.array(data["action_is_pad"], dtype=bool),
-            "instruction": data["task"].lower(),
+            "instruction": data[self.instruction_key].lower(),
             "actions_mask": mask
         }
 

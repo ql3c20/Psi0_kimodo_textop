@@ -11,7 +11,23 @@ from typing import Any
 
 import yaml
 
-from simple.evals.api import EvalConfig, EvalRunner
+# MuJoCo selects its GL backend at import time, before the preset is loaded.
+# Force EGL here for headless SIMPLE evaluation.
+os.environ.setdefault("MUJOCO_GL", "egl")
+os.environ.setdefault("PYOPENGL_PLATFORM", "egl")
+
+# Policy requests are local and must not be routed through an HTTP(S) proxy.
+_local_no_proxy = "localhost,127.0.0.1,0.0.0.0"
+for _key in ("NO_PROXY", "no_proxy"):
+    _existing = os.environ.get(_key, "")
+    _values = [value for value in _existing.split(",") if value]
+    for _host in _local_no_proxy.split(","):
+        if _host not in _values:
+            _values.append(_host)
+    os.environ[_key] = ",".join(_values)
+
+from simple.evals.api import EvalConfig
+from simple.cli.eval_decoupled_wbc import run_eval as run_decoupled_wbc_eval
 
 
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -139,7 +155,11 @@ def main() -> int:
     if args.num_workers is not None:
         eval_cfg["num_workers"] = args.num_workers
 
-    gr00t_python = Path(server_cfg.pop("python", DEFAULT_GR00T_PYTHON)).resolve()
+    # Keep the virtualenv interpreter path intact. Resolving this symlink points
+    # at uv's bare CPython binary and bypasses the virtualenv site-packages.
+    gr00t_python = Path(server_cfg.pop("python", DEFAULT_GR00T_PYTHON))
+    server_entrypoint = server_cfg.pop("entrypoint", None)
+    server_pythonpath = server_cfg.pop("pythonpath", None)
     server_host = server_cfg.pop("host", "0.0.0.0")
     server_cfg.pop("port", None)
     wait_host = eval_cfg.get("host", "localhost")
@@ -147,24 +167,40 @@ def main() -> int:
     wait_sleep_s = float(runtime_cfg.get("wait_sleep_s", 0.1))
 
     env = os.environ.copy()
-    env["PYTHONPATH"] = f"{REPO_ROOT / 'src'}:{REPO_ROOT / 'src/gr00t'}:{env.get('PYTHONPATH', '')}".rstrip(":")
+    pythonpath_parts = []
+    if server_pythonpath:
+        pythonpath_parts.append(str(server_pythonpath))
+    pythonpath_parts.extend([str(REPO_ROOT / "src"), str(REPO_ROOT / "src/gr00t")])
+    if env.get("PYTHONPATH"):
+        pythonpath_parts.append(env["PYTHONPATH"])
+    env["PYTHONPATH"] = ":".join(pythonpath_parts)
     env.setdefault("TORCHINDUCTOR_DISABLE", "1")
     env.setdefault("TORCH_COMPILE", "0")
     env.setdefault("HF_HOME", "/tmp/hf")
-    env.setdefault("TRANSFORMERS_CACHE", f"{env['HF_HOME']}/transformers")
+    # Modern Transformers uses HF_HOME/hub. Setting the deprecated
+    # TRANSFORMERS_CACHE to a separate directory hides an otherwise complete
+    # Hub cache, which breaks offline N1.7/Cosmos loading.
+    env.pop("TRANSFORMERS_CACHE", None)
     env.setdefault("XDG_CACHE_HOME", env["HF_HOME"])
     for key, value in env_cfg.items():
         env[str(key)] = str(value)
+        # The server runs in a subprocess, while SIMPLE evaluation runs in this
+        # process (and may spawn workers from it). Apply preset environment
+        # values to both sides so client-side controls such as execution
+        # horizon and headless rendering are not silently ignored.
+        os.environ[str(key)] = str(value)
 
-    server_cmd = [
-        str(gr00t_python),
-        "-m",
-        "gr00t.deploy.gr00t_serve_simple",
+    server_cmd = [str(gr00t_python)]
+    if server_entrypoint:
+        server_cmd.append(str(server_entrypoint))
+    else:
+        server_cmd.extend(["-m", "gr00t.deploy.gr00t_serve_simple"])
+    server_cmd.extend([
         "--host",
         str(server_host),
         "--port",
         str(port),
-    ]
+    ])
     for key, value in server_cfg.items():
         flag = f"--{key.replace('_', '-')}"
         if isinstance(value, bool):
@@ -193,7 +229,7 @@ def main() -> int:
 
     try:
         _wait_for_port(wait_host, port, wait_tries, wait_sleep_s)
-        result = EvalRunner(eval_config).run()
+        result = run_decoupled_wbc_eval(eval_config)
         print(f"success_rate={result.success_rate:.6f}")
         print(f"log_path={result.log_path}")
     finally:

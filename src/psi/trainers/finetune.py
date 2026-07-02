@@ -47,6 +47,7 @@ class FinetuneTrainer(Trainer):
         self.ac_chunk = self.model_cfg.action_chunk_size
         self.ac_dim = self.model_cfg.action_dim
         self.maxmin = self.data_cfg.transform.field
+        self.hand14_loss_mult = float(os.environ.get("PSI0_HAND14_LOSS_MULT", "1.0"))
 
         if self.model_cfg.action_dim == 7:
             w_xyz, w_rpy, w_gripper = self.model_cfg.loss_w
@@ -57,6 +58,13 @@ class FinetuneTrainer(Trainer):
             )  # (7,)
         else:
             self.loss_w = torch.tensor([1.0 / self.model_cfg.action_dim] * self.model_cfg.action_dim, dtype=torch.float32).to(self.device)
+            if self.model_cfg.action_dim == 59 and self.hand14_loss_mult != 1.0:
+                self.loss_w[:14] *= self.hand14_loss_mult
+                self.loss_w /= self.loss_w.sum()
+                overwatch.info(
+                    f"Apply hand14 loss multiplier for 59D action: PSI0_HAND14_LOSS_MULT={self.hand14_loss_mult}",
+                    ctx_level=1,
+                )
         assert self.loss_w.sum() == 1.0, "Weights better sum to 1.0 to keep loss range consistent"
 
         if self.noise_scheduler_name == "ddpm":
@@ -80,6 +88,43 @@ class FinetuneTrainer(Trainer):
             )
         # assert self.task_cfg.mixed_precision == "no", "other options not tested"
         # assert self.model_cfg.n_conditions == len(self.data_cfg.transform.repack.conditions), "inconsistent confs" # type: ignore
+
+    def _action_groups(self, dim: int) -> dict[str, list[int]]:
+        if dim == 59:
+            return {
+                "hand14": list(range(0, 14)),
+                "root_xyz": list(range(14, 17)),
+                "root_rot6d": list(range(17, 23)),
+                "left_hand_ee_xyz": list(range(23, 26)),
+                "left_hand_ee_rot6d": list(range(26, 32)),
+                "right_hand_ee_xyz": list(range(32, 35)),
+                "right_hand_ee_rot6d": list(range(35, 41)),
+                "left_foot_ee_xyz": list(range(41, 44)),
+                "left_foot_ee_rot6d": list(range(44, 50)),
+                "right_foot_ee_xyz": list(range(50, 53)),
+                "right_foot_ee_rot6d": list(range(53, 59)),
+            }
+        if dim == 43:
+            return {
+                "hand": list(range(0, 14)),
+                "root_xyz": list(range(14, 17)),
+                "root_yaw": [17],
+                "ee_xyz": list(range(18, 21)) + list(range(24, 27)) + list(range(30, 33)) + list(range(36, 39)),
+                "ee_rpy": list(range(21, 24)) + list(range(27, 30)) + list(range(33, 36)) + list(range(39, 42)),
+                "target_yaw": [42],
+            }
+        if dim == 36:
+            return {
+                "hand_joints": list(range(0, 14)),
+                "arm_joints": list(range(14, 28)),
+                "torso_rpy": list(range(28, 31)),
+                "height": [31],
+                "vx": [32],
+                "vy": [33],
+                "vyaw": [34],
+                "target_yaw": [35],
+            }
+        return {"all": list(range(dim))}
 
     @property
     def task_cfg(self) -> TrainConfig:
@@ -377,11 +422,17 @@ class FinetuneTrainer(Trainer):
         # self.train_loss_tracker = step_loss
         self.train_loss_tracker = step_loss = losses["loss"].detach().item()
 
-        return (self.accelerator.sync_gradients, {
+        metrics = {
             "lr_act": self.lr, 
             "grad_norm_act": self._grad_norm_act, # type: ignore
             "loss": step_loss
-        })
+        }
+        for key, value in losses.items():
+            if key == "loss":
+                continue
+            metrics[key] = value.detach().item() if isinstance(value, torch.Tensor) else value
+
+        return (self.accelerator.sync_gradients, metrics)
 
     @torch.no_grad()
     def inference(self, eval_model, repacked_batch):
@@ -490,37 +541,16 @@ class FinetuneTrainer(Trainer):
             )
         )
 
-        # action L1 errors
         avg_action_errors_denormed = action_l1_err_list_denormed.mean(0)  # (Da,) NOTE only if the error is L1 (linear)
-        # Define dimension splits: hand_joints(14) + arm_joints(14) + rpy(3) + height(1) = 32
-        hand_joints_start, hand_joints_end = 0, 14
-        arm_joints_start, arm_joints_end = 14, 28
-        rpy_start, rpy_end = 28, 31
-        height_start, height_end = 31, 32
-        torso_vx_start, torso_vx_end = 32, 33
-        torso_vy_start, torso_vy_end = 33, 34
-        torso_vyaw_start, torso_vyaw_end = 34, 35
-        torso_dyaw_start, torso_dyaw_end = 35, 36
-    
-        labels_denormed = [
-            "err_l1_hand_joints",
-            "err_l1_arm_joints",
-            "err_l1_torso_rpy",
-            "err_l1_height",
-            "err_l1_vx",
-            "err_l1_vy",
-            "err_l1_vyaw",
-            "err_l1_target_yaw",
-        ]
-    
-        avg_lr_action_err_denormed = np.split(
-            avg_action_errors_denormed, [hand_joints_end, arm_joints_end, rpy_end, height_end, torso_vx_end, torso_vy_end, torso_vyaw_end], axis=-1
-        )
+        group_errors = {
+            f"err_l1_{name}": float(np.linalg.norm(avg_action_errors_denormed[indices]))
+            for name, indices in self._action_groups(Da).items()
+        }
 
         # log metrics
         return {
             "loss": avg_val_loss,
-            **dict(zip(labels_denormed, map(np.linalg.norm, avg_lr_action_err_denormed)))
+            **group_errors,
         }
 
     def forward_and_loss(self, model, batch) -> dict[str, torch.Tensor]:
@@ -595,6 +625,10 @@ class FinetuneTrainer(Trainer):
             postfix_mask = (~prefix_mask)[:, :, None].float() # type: ignore  (B, Tp, 1)  
             mask = mask * postfix_mask
         
-        loss_action = (loss_action * mask).sum(1)  # (B, Da)
-        loss_action = (loss_action.mean(0) * self.loss_w).sum()
-        return {"loss": loss_action}
+        loss_per_dim = (loss_action * mask).sum(1).mean(0)  # (Da,)
+        loss_action = (loss_per_dim * self.loss_w).sum()
+        group_losses = {
+            f"loss_{name}": loss_per_dim[indices].mean()
+            for name, indices in self._action_groups(Da).items()
+        }
+        return {"loss": loss_action, **group_losses}

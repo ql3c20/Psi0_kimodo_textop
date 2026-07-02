@@ -41,7 +41,7 @@ from transformers.models.dinov2 import Dinov2Model
 from diffusers.utils import logging
 logger = logging.get_logger(__name__)  # pylint: disable=invalid-name  FIXME why this not works any more?
 
-QWEN3VL_VARIANT = "Qwen/Qwen3-VL-2B-Instruct"
+QWEN3VL_VARIANT = os.environ.get("QWEN3VL_VARIANT", "Qwen/Qwen3-VL-2B-Instruct")
 
 @dataclass
 class HumanFoundationModelOutput(BaseOutput):
@@ -1729,6 +1729,17 @@ class Psi0Model(nn.Module):
                     ),
                     return_dict=True,
                 ).action
+                q_guidance = kwargs.get("q_guidance")
+                if q_guidance is not None:
+                    sigma = self.noise_scheduler.sigmas[
+                        self.noise_scheduler.index_for_timestep(timestep)
+                    ].to(self.device)
+                    model_pred = q_guidance.guide_velocity(
+                        action_samples,
+                        model_pred,
+                        kwargs["q_guidance_states"],
+                        sigma,
+                    )
                 action_samples = self.noise_scheduler.step(
                     model_output=model_pred, timestep=timestep, sample=action_samples # type: ignore
                 ).prev_sample
@@ -1852,6 +1863,19 @@ class Psi0Model(nn.Module):
                     ),
                     return_dict=True,
                 ).action
+
+                q_guidance = kwargs.get("q_guidance")
+                if q_guidance is not None:
+                    sigma = self.noise_scheduler.sigmas[
+                        self.noise_scheduler.index_for_timestep(timestep)
+                    ].to(self.device)
+                    model_pred = q_guidance.guide_velocity(
+                        action_samples,
+                        model_pred,
+                        kwargs["q_guidance_states"],
+                        sigma,
+                        frozen_prefix=prefix_mask,
+                    )
 
                 action_samples = self.noise_scheduler.step(
                     model_output=model_pred, timestep=timestep, sample=action_samples # type: ignore

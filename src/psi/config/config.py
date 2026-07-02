@@ -117,6 +117,11 @@ class ServerConfig(BaseModel):
     policy: str | None = None
     action_exec_horizon: int | None = None
     rtc: bool = False
+    q_guidance_checkpoint: str | None = None
+    q_guidance_beta: float = 0.03
+    q_guidance_start_t: float = 0.3
+    q_guidance_max_grad_norm: float = 0.3
+    q_guidance_mask: str = "position"
     run_dir: str 
     ckpt_step: int 
 

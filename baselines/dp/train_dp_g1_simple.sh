@@ -1,7 +1,8 @@
 #!/bin/bash
 
 export OMP_NUM_THREADS=32
-export CUDA_VISIBLE_DEVICES=6,7
+export CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES:-1,2,3,4}
+export DP_SIMPLE_DATA_ROOT=${DP_SIMPLE_DATA_ROOT:-/pfs/pfs-ilWc5D/yzh/Psi0/data/simple}
 
 source .venv-dp/bin/activate
 
@@ -46,7 +47,7 @@ simple_dp_config \
 --train.lr_scheduler_kwargs.weight_decay=1e-6 \
 --train.lr_scheduler_kwargs.betas 0.95 0.999 \
 --train.lr_scheduler_type=cosine \
---data.root_dir=/hfm/data/simple \
+--data.root_dir=$DP_SIMPLE_DATA_ROOT \
 --data.train-repo-ids=$task \
 --data.transform.repack.action_chunk_size=16 \
 --data.transform.repack.pad-action-dim=36 \

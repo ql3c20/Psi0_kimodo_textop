@@ -696,6 +696,46 @@ class Gr00tSimPolicyWrapper(PolicyWrapper):
         # action['joints'] -> 'action.joints'
         return {f"action.{key}": action[key] for key in action}, info
 
+    def get_action_with_rtc(
+        self,
+        observation: dict[str, Any],
+        prev_actions,
+        inference_delay: int,
+        execution_horizon: int,
+        mask_schedule: str = "exponential",
+        guidance_weight: float = 5.0,
+    ) -> tuple[dict[str, Any], dict[str, Any]]:
+        """Run the underlying N1.6 RTC path while preserving the sim wrapper format."""
+        if self.strict:
+            self.check_observation(observation)
+
+        nested_obs: dict[str, dict[str, Any]] = {}
+        for modality in ["video", "state", "language"]:
+            nested_obs[modality] = {}
+            for key in self.policy.modality_configs[modality].modality_keys:
+                if modality == "language":
+                    parsed_key = (
+                        "annotation.human.coarse_action"
+                        if key == "task" and "annotation.human.coarse_action" in observation
+                        else key
+                    )
+                    nested_obs[modality][key] = [[str(item)] for item in observation[parsed_key]]
+                else:
+                    nested_obs[modality][key] = observation[f"{modality}.{key}"]
+
+        action, info = self.policy._get_action_with_rtc(
+            nested_obs,
+            prev_actions=prev_actions,
+            inference_delay=inference_delay,
+            execution_horizon=execution_horizon,
+            mask_schedule=mask_schedule,
+            guidance_weight=guidance_weight,
+        )
+        flat_action = {f"action.{key}": value for key, value in action.items()}
+        if self.strict:
+            self.check_action(flat_action)
+        return flat_action, info
+
     def check_action(self, action: dict[str, Any]) -> None:
         """Validate action in Gr00t sim environment format.
 

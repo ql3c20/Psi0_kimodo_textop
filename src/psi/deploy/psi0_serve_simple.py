@@ -23,6 +23,26 @@ from psi.utils.overwatch import initialize_overwatch
 
 overwatch = initialize_overwatch(__name__)
 
+def _state49_rpy_to_state52_rot6d(states: torch.Tensor) -> torch.Tensor:
+    """Convert hand14+body29+root_xyz3+root_rpy3 to the rot6d52 schema."""
+    if states.shape[-1] != 49:
+        raise ValueError(f"Expected SIMPLE online state49, got shape {tuple(states.shape)}")
+    roll, pitch, yaw = states[..., 46], states[..., 47], states[..., 48]
+    cr, sr = torch.cos(roll), torch.sin(roll)
+    cp, sp = torch.cos(pitch), torch.sin(pitch)
+    cy, sy = torch.cos(yaw), torch.sin(yaw)
+
+    # scipy Rotation.from_euler("xyz"): R = Rz(yaw) @ Ry(pitch) @ Rx(roll).
+    r00 = cy * cp
+    r01 = cy * sp * sr - sy * cr
+    r10 = sy * cp
+    r11 = sy * sp * sr + cy * cr
+    r20 = -sp
+    r21 = cp * sr
+    root_rot6d = torch.stack([r00, r01, r10, r11, r20, r21], dim=-1)
+    return torch.cat([states[..., :46], root_rot6d], dim=-1)
+
+
 class Server:
     
     def __init__(
@@ -32,7 +52,12 @@ class Server:
         ckpt_step: int | str  = "latest", 
         device: str = "cuda:0", 
         enable_rtc: bool = False,
-        action_exec_horizon: int | None = None
+        action_exec_horizon: int | None = None,
+        q_guidance_checkpoint: str | None = None,
+        q_guidance_beta: float = 0.03,
+        q_guidance_start_t: float = 0.3,
+        q_guidance_max_grad_norm: float = 0.3,
+        q_guidance_mask: str = "position",
     ):
         if not torch.cuda.is_available():
             raise RuntimeError("CUDA is not available. Please check your CUDA installation.")
@@ -73,6 +98,26 @@ class Server:
         assert self.Ta <= self.Tp, "action_exec_horizon is too big"
         self.launch_config = launch_config
         self.count = 0
+
+        self.q_guidance = None
+        if q_guidance_checkpoint is not None:
+            from psi.models.q_guidance import Psi0QGuidance
+            self.q_guidance = Psi0QGuidance(
+                checkpoint=q_guidance_checkpoint,
+                action_min=self.maxmin.action_min,
+                action_max=self.maxmin.action_max,
+                device=self.device,
+                beta_max=q_guidance_beta,
+                start_t=q_guidance_start_t,
+                max_grad_norm=q_guidance_max_grad_norm,
+                mask=q_guidance_mask,
+            )
+            overwatch.info(
+                "Q guidance enabled: "
+                f"checkpoint={q_guidance_checkpoint}, beta={q_guidance_beta}, "
+                f"start_t={q_guidance_start_t}, max_grad_norm={q_guidance_max_grad_norm}, "
+                f"mask={q_guidance_mask}"
+            )
         
         self.enable_rtc = enable_rtc
         if enable_rtc:
@@ -100,7 +145,27 @@ class Server:
             transforms = [self.model_transform.resize(), self.model_transform.center_crop()]
             t = v2.Compose(transforms)
 
-            states = torch.from_numpy(state_dict["states"].copy())
+            raw_states = torch.from_numpy(state_dict["states"].copy())
+            if raw_states.shape[-1] == 49:
+                q_raw_states = _state49_rpy_to_state52_rot6d(raw_states)
+            elif raw_states.shape[-1] == 52:
+                q_raw_states = raw_states
+            elif self.maxmin.pad_state_dim is not None:
+                q_raw_states = torch.from_numpy(
+                    pad_to_len(
+                        raw_states.numpy(),
+                        self.maxmin.pad_state_dim,
+                        dim=1,
+                    )[0]
+                )
+            else:
+                q_raw_states = raw_states
+            q_guidance_states = (
+                q_raw_states.to(self.device).unsqueeze(0)
+                if self.q_guidance is not None
+                else None
+            )
+            states = raw_states
             # self.repack_transform.to_psi0_state_format(
             #     torch.from_numpy(state_dict["proprio_joint_positions"].copy()),
             #     torch.from_numpy(state_dict["amo_policy_command"].copy()),
@@ -119,7 +184,9 @@ class Server:
                     states=states.unsqueeze(0), # B, To, Ds
                     instructions=[instruction], # [Task] * B
                     num_inference_steps=10, 
-                    traj2ds=None
+                    traj2ds=None,
+                    q_guidance=self.q_guidance,
+                    q_guidance_states=q_guidance_states,
                 )
             else: # rtc
                 current_time = time.monotonic()
@@ -130,7 +197,9 @@ class Server:
                         states=states.unsqueeze(0), # B, To, Ds
                         instructions=[instruction], # [Task] * B
                         num_inference_steps=10, 
-                        traj2ds=None
+                        traj2ds=None,
+                        q_guidance=self.q_guidance,
+                        q_guidance_states=q_guidance_states,
                     )
                 else:
                     overwatch.info("RTC enabled, using RTC inference")
@@ -149,10 +218,17 @@ class Server:
                         traj2ds=None,
                         prev_actions=prev_actions,
                         inference_delay=(self.Tp - self.Ta), 
-                        max_delay=self.rtc_max_delay
+                        max_delay=self.rtc_max_delay,
+                        q_guidance=self.q_guidance,
+                        q_guidance_states=q_guidance_states,
                     )
 
             raw_pred_actions = raw_pred_actions.reshape(-1, self.Da).cpu().numpy() # (Tp, Da)
+            if self.q_guidance is not None and self.q_guidance.last_q is not None:
+                overwatch.info(
+                    f"Q guidance: q={self.q_guidance.last_q:.6f}, "
+                    f"clipped_grad_norm={self.q_guidance.last_grad_norm:.6f}"
+                )
             pred_actions = self.maxmin.denormalize(raw_pred_actions) # (Ta, Da)
             self.previous_action = raw_pred_actions.copy().astype(np.float32) # for rtc
             pred_actions = pred_actions[:self.Ta] # type:ignore
@@ -190,7 +266,12 @@ def serve(cfg: ServerConfig) -> None:
         cfg.ckpt_step, 
         cfg.device, 
         cfg.rtc,
-        cfg.action_exec_horizon
+        cfg.action_exec_horizon,
+        cfg.q_guidance_checkpoint,
+        cfg.q_guidance_beta,
+        cfg.q_guidance_start_t,
+        cfg.q_guidance_max_grad_norm,
+        cfg.q_guidance_mask,
     )
     
     overwatch.info("Server :: Spinning Up")

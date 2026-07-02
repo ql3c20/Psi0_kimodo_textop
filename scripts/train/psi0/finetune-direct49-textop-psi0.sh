@@ -9,16 +9,8 @@ NPROC_PER_NODE=$(echo $CUDA_VISIBLE_DEVICES | tr ',' '\n' | wc -l)
 ulimit -n 65535
 echo "Training with $NPROC_PER_NODE GPUs"
 
-if [ "$#" -lt 1 ]; then
-    echo "Usage: $0 <task> [exp]"
-    echo "Example: $0 G1WholebodyBendPick-v0-psi0 bend-pick"
-    exit 1
-fi
-
-export task="$1"
-task_words=$(echo "$task" | tr '[:upper:]' '[:lower:]' | tr '_' ' ')
-default_exp=$(echo "$task_words" | awk '{if (NF>=2) print $1 "-" $2; else print $1}')
-export exp=${2:-$default_exp}
+export task=${1:-kimodo_augmented_v2}
+export exp=${2:-movepick-direct49-textop}
 
 echo "Task: $task"
 echo "Experiment name: $exp"
@@ -45,18 +37,20 @@ finetune_simple_psi0_config \
 --train.lr_scheduler_kwargs.weight_decay=1e-6 \
 --train.lr_scheduler_kwargs.betas 0.95 0.999 \
 --log.report_to=wandb \
---data.root_dir=/pfs/pfs-ilWc5D/yzh/Psi0/data/simple \
+--data.root_dir=/pfs/pfs-ilWc5D/yzh/Psi0/data/simple/G1WholebodyXMovePickTeleop-v0 \
 --data.train-repo-ids=$task \
---data.transform.repack.pad-action-dim=36 \
---data.transform.repack.pad-state-dim=36 \
---data.transform.field.stat-path=meta/stats_psi0.json \
---data.transform.field.stat-action-key=action \
---data.transform.field.stat-state-key=states \
+--data.transform.repack.state-key=observation.full_state \
+--data.transform.repack.action-key=action.direct49 \
+--data.transform.repack.pad-action-dim=49 \
+--data.transform.repack.pad-state-dim=49 \
+--data.transform.field.stat-path=meta/stats.json \
+--data.transform.field.stat-action-key=action.direct49 \
+--data.transform.field.stat-state-key=observation.full_state \
 --data.transform.field.action_norm_type=bounds \
 --data.transform.field.no-use-norm-mask \
 --data.transform.field.normalize-state \
---data.transform.field.pad-action-dim=36 \
---data.transform.field.pad-state-dim=36 \
+--data.transform.field.pad-action-dim=49 \
+--data.transform.field.pad-state-dim=49 \
 --data.transform.model.img-aug \
 --data.transform.model.resize.size 180 320 \
 --data.transform.model.center_crop.size 180 320 \
@@ -66,10 +60,10 @@ finetune_simple_psi0_config \
 --model.train-diffusion-steps=1000 \
 --model.n_conditions=0 \
 --model.action-chunk-size=30 \
---model.action-dim=36 \
+--model.action-dim=49 \
 --model.action-exec-horizon=30 \
 --model.observation-horizon=1 \
---model.odim=36 \
+--model.odim=49 \
 --model.view_feature_dim=2048 \
 --model.no-tune-vlm \
 --model.no-use_film \
@@ -78,5 +72,5 @@ finetune_simple_psi0_config \
 --model.max-delay=8
 "
 
-torchrun --nproc_per_node=$NPROC_PER_NODE --master_port=29500 scripts/train.py \
+torchrun --nproc_per_node=$NPROC_PER_NODE --master_port=${MASTER_PORT:-29500} scripts/train.py \
     ${args}

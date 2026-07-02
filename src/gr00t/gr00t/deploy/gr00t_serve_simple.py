@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from typing import Any
 
 import numpy as np
+import torch
 import tyro
 import uvicorn
 from fastapi import FastAPI
@@ -44,6 +45,18 @@ class ServerConfig:
     action_exec_horizon: int | None = None
     """Optional action horizon to truncate the returned action chunk"""
 
+    enable_rtc: bool = False
+    """Use N1.6 RTC after the first action chunk."""
+
+    rtc_inference_delay: int = 1
+    """RTC frozen prefix length, in action steps."""
+
+    rtc_mask_schedule: str = "exponential"
+    """RTC soft-mask schedule."""
+
+    rtc_guidance_weight: float = 5.0
+    """RTC guidance strength."""
+
 
 class Server:
     def __init__(self, cfg: ServerConfig):
@@ -62,6 +75,11 @@ class Server:
 
         self.modality_configs = self.policy.get_modality_config()
         self.action_exec_horizon = cfg.action_exec_horizon
+        self.enable_rtc = cfg.enable_rtc
+        self.rtc_inference_delay = cfg.rtc_inference_delay
+        self.rtc_mask_schedule = cfg.rtc_mask_schedule
+        self.rtc_guidance_weight = cfg.rtc_guidance_weight
+        self.previous_action: torch.Tensor | None = None
         self.last_serve_time = time.monotonic()
 
     @staticmethod
@@ -132,7 +150,9 @@ class Server:
     @staticmethod
     def _action_to_psi_format(action: dict[str, Any]) -> np.ndarray:
         def _pick(key: str) -> np.ndarray:
-            raw = action.get(key) or action.get(f"action.{key}")
+            raw = action.get(key)
+            if raw is None:
+                raw = action.get(f"action.{key}")
             if raw is None:
                 raise KeyError(f"Missing action key '{key}'")
             return Server._ensure_btd(np.asarray(raw, dtype=np.float32))
@@ -236,10 +256,26 @@ class Server:
     def predict_action(self, payload: dict[str, Any]) -> JSONResponse:
         try:
             request = RequestMessage.deserialize(payload)
+            if request.history.get("reset", False):
+                self.previous_action = None
             observation = self._build_observation(request)
-            action, _info = self.policy.get_action(observation)
+            if self.enable_rtc and self.previous_action is not None:
+                if self.action_exec_horizon is None:
+                    raise ValueError("RTC requires --action-exec-horizon")
+                action, _info = self.policy.get_action_with_rtc(
+                    observation,
+                    prev_actions=self.previous_action,
+                    inference_delay=self.rtc_inference_delay,
+                    execution_horizon=self.action_exec_horizon,
+                    mask_schedule=self.rtc_mask_schedule,
+                    guidance_weight=self.rtc_guidance_weight,
+                )
+            else:
+                action, _info = self.policy.get_action(observation)
 
             psi_action = self._action_to_psi_format(action)
+            # RTC needs the complete previous prediction, not the returned truncation.
+            self.previous_action = torch.from_numpy(psi_action.copy())
             if self.action_exec_horizon is not None and psi_action.ndim >= 2:
                 psi_action = psi_action[:, : self.action_exec_horizon]
             # SIMPLE client expects (T, D), not (B, T, D)
