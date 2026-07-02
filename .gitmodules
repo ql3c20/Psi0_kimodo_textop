@@ -1,4 +1,4 @@
 [submodule "third_party/SIMPLE"]
 	path = third_party/SIMPLE
-	url = https://github.com/physical-superintelligence-lab/SIMPLE.git
-	branch = main
+	url = https://github.com/ql3c20/SIMPLE_eval_env.git
+	branch = simple_eval
