@@ -49,6 +49,9 @@ USE_RTC="${USE_RTC:-1}"
 NUM_EPISODES="${NUM_EPISODES:-20}"
 EPISODE_START="${EPISODE_START:-0}"
 MAX_EPISODE_STEPS="${MAX_EPISODE_STEPS:-800}"
+SIM_MODE="${SIM_MODE:-mujoco_isaac}"
+DATA_FORMAT="${DATA_FORMAT:-lerobot}"
+DATA_DIR="${DATA_DIR:-data/evals/simple-eval/${TASK}/${DR}}"
 
 export KIMODO_ROOT
 export KIMODO_PYTHON="${KIMODO_PYTHON:-/pfs/pfs-ilWc5D/yuhao/miniconda3_4090/envs/kimodo/bin/python}"
@@ -77,6 +80,11 @@ export TEXTOP_VAE_ONNX="${TEXTOP_VAE_ONNX:-${TEXTOP_VAE_RUN}/artifacts/motion_tr
 export TEXTOP_VAE_STATS="${TEXTOP_VAE_STATS:-${TEXTOP_VAE_RUN}/artifacts/stats.npz}"
 export TEXTOP_FUTURE_STEPS="${TEXTOP_FUTURE_STEPS:-10}"
 export TEXTOP_TASK="${TEXTOP_TASK:-Tracking-Flat-G1-ProjGravAnchorEEObs-TransformerVAE-NMMLP-v0}"
+# PSI0 -> Kimodo -> TextOp default:
+#   - hand14 and root + four EE poses come directly from the VLA policy action;
+#   - Kimodo qpos50 remains the full-body future reference encoded by the VAE to 128D z/c.
+# Set TEXTOP_POLICY_ROOT_EE=0 explicitly to recover Kimodo-FK root/EE references.
+export TEXTOP_POLICY_ROOT_EE="${TEXTOP_POLICY_ROOT_EE:-1}"
 
 TEXTOP_ONESTEP_TASK="${TEXTOP_ONESTEP_TASK:-Tracking-Flat-G1-ProjGravAnchorEEObsOneStep-TransformerVAE-NMMLP-v0}"
 TEXTOP_ONESTEP_RUN_DIR="${TEXTOP_ONESTEP_RUN_DIR:-$POLICYHAND_ROT6D59_RUN_DIR}"
@@ -203,10 +211,10 @@ eval_simple() {
     --eval-dir="$EVAL_DIR" \
     --host="$HOST" \
     --port="$PORT" \
-    --sim-mode=mujoco_isaac \
+    --sim-mode="$SIM_MODE" \
     --headless \
-    --data-format=lerobot \
-    --data-dir="data/evals/simple-eval/${TASK}/${DR}" \
+    --data-format="$DATA_FORMAT" \
+    --data-dir="$DATA_DIR" \
     --num-episodes="$NUM_EPISODES" \
     --episode-start="$EPISODE_START" \
 	    ${MAX_EPISODE_STEPS:+--max-episode-steps="$MAX_EPISODE_STEPS"}
