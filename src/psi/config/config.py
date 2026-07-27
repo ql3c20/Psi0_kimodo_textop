@@ -116,6 +116,7 @@ class ServerConfig(BaseModel):
     device: str = "cuda:0"
     policy: str | None = None
     action_exec_horizon: int | None = None
+    return_full_action_chunk: bool = False
     rtc: bool = False
     q_guidance_checkpoint: str | None = None
     q_guidance_beta: float = 0.03

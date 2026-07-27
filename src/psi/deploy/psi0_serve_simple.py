@@ -53,6 +53,7 @@ class Server:
         device: str = "cuda:0", 
         enable_rtc: bool = False,
         action_exec_horizon: int | None = None,
+        return_full_action_chunk: bool = False,
         q_guidance_checkpoint: str | None = None,
         q_guidance_beta: float = 0.03,
         q_guidance_start_t: float = 0.3,
@@ -96,6 +97,7 @@ class Server:
         self.Tp = launch_config.model.action_chunk_size # type:ignore
         self.Ta = action_exec_horizon or launch_config.model.action_exec_horizon # type:ignore
         assert self.Ta <= self.Tp, "action_exec_horizon is too big"
+        self.return_full_action_chunk = return_full_action_chunk
         self.launch_config = launch_config
         self.count = 0
 
@@ -231,11 +233,18 @@ class Server:
                 )
             pred_actions = self.maxmin.denormalize(raw_pred_actions) # (Ta, Da)
             self.previous_action = raw_pred_actions.copy().astype(np.float32) # for rtc
-            pred_actions = pred_actions[:self.Ta] # type:ignore
-            overwatch.info(f"Return Action ({pred_actions.shape})") # : {pred_actions}
+            if self.return_full_action_chunk:
+                response_actions = pred_actions
+                overwatch.info(
+                    f"Return full Action ({response_actions.shape}); "
+                    f"RTC action_exec_horizon={self.Ta}"
+                )
+            else:
+                response_actions = pred_actions[:self.Ta] # type:ignore
+                overwatch.info(f"Return Action ({response_actions.shape})") # : {response_actions}
 
             self.last_serve_time = time.monotonic()
-            response = ResponseMessage(pred_actions, 0.0) # type:ignore
+            response = ResponseMessage(response_actions, 0.0) # type:ignore
             return JSONResponse(content=response.serialize())
 
         except Exception as e:
@@ -267,6 +276,7 @@ def serve(cfg: ServerConfig) -> None:
         cfg.device, 
         cfg.rtc,
         cfg.action_exec_horizon,
+        cfg.return_full_action_chunk,
         cfg.q_guidance_checkpoint,
         cfg.q_guidance_beta,
         cfg.q_guidance_start_t,

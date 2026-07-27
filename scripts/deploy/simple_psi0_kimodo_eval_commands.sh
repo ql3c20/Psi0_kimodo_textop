@@ -17,9 +17,9 @@ set -euo pipefail
 #   Psi0 checkpoint returns 44D policy actions
 #   SIMPLE agent converts 44D -> Kimodo -> original SIMPLE 36D -> WBC.
 
-PSI0_ROOT="${PSI0_ROOT:-/pfs/pfs-ilWc5D/yzh/Psi0}"
+PSI0_ROOT="${PSI0_ROOT:-/pfs/pfs-oHNwH0/mnt/pfs/humanoid/yzh/Psi0}"
 SIMPLE_ROOT="${SIMPLE_ROOT:-${PSI0_ROOT}/third_party/SIMPLE}"
-KIMODO_ROOT="${KIMODO_ROOT:-/pfs/pfs-ilWc5D/yzh/kimodo_my}"
+KIMODO_ROOT="${KIMODO_ROOT:-/pfs/pfs-oHNwH0/mnt/pfs/humanoid/yzh/kimodo_my}"
 
 export HF_HOME="${HF_HOME:-${PSI0_ROOT}/huggingface}"
 export HF_HUB_CACHE="${HF_HUB_CACHE:-${HF_HOME}/hub}"
@@ -46,7 +46,9 @@ HOST="${HOST:-localhost}"
 PORT="${PORT:-22085}"
 ACTION_EXEC_HORIZON="${ACTION_EXEC_HORIZON:-24}"
 USE_RTC="${USE_RTC:-1}"
+RETURN_FULL_ACTION_CHUNK="${RETURN_FULL_ACTION_CHUNK:-0}"
 NUM_EPISODES="${NUM_EPISODES:-20}"
+SAVE_VIDEO="${SAVE_VIDEO:-1}"
 EPISODE_START="${EPISODE_START:-0}"
 MAX_EPISODE_STEPS="${MAX_EPISODE_STEPS:-800}"
 SIM_MODE="${SIM_MODE:-mujoco_isaac}"
@@ -54,7 +56,7 @@ DATA_FORMAT="${DATA_FORMAT:-lerobot}"
 DATA_DIR="${DATA_DIR:-data/evals/simple-eval/${TASK}/${DR}}"
 
 export KIMODO_ROOT
-export KIMODO_PYTHON="${KIMODO_PYTHON:-/pfs/pfs-ilWc5D/yuhao/miniconda3_4090/envs/kimodo/bin/python}"
+export KIMODO_PYTHON="${KIMODO_PYTHON:-/pfs/pfs-oHNwH0/mnt/pfs/humanoid/yzh/miniconda3/envs/kimodo/bin/python}"
 export KIMODO_DISTILL_CONFIG="${KIMODO_DISTILL_CONFIG:-${KIMODO_ROOT}/outputs/g1_distill_16to8_100to20_dagger_teacher_gt03_100k_bs4x4_k3_cosine_selfacc50_rootacc10_headingacc10_gtbranch/resolved_config.yaml}"
 export KIMODO_DISTILL_CKPT="${KIMODO_DISTILL_CKPT:-${KIMODO_ROOT}/outputs/g1_distill_16to8_100to20_dagger_teacher_gt03_100k_bs4x4_k3_cosine_selfacc50_rootacc10_headingacc10_gtbranch/ema_final.pt}"
 export KIMODO_DIFFUSION_STEPS="${KIMODO_DIFFUSION_STEPS:-20}"
@@ -72,7 +74,7 @@ export KIMODO_SERVER_HOST="${KIMODO_SERVER_HOST:-127.0.0.1}"
 export KIMODO_SERVER_PORT="${KIMODO_SERVER_PORT:-22185}"
 export KIMODO_SERVER_URL="${KIMODO_SERVER_URL:-http://${KIMODO_SERVER_HOST}:${KIMODO_SERVER_PORT}}"
 
-export TEXTOP_ROOT="${TEXTOP_ROOT:-/pfs/pfs-ilWc5D/yzh}"
+export TEXTOP_ROOT="${TEXTOP_ROOT:-/pfs/pfs-oHNwH0/mnt/pfs/humanoid/yzh}"
 export TEXTOP_TRACKER_RUN="${TEXTOP_TRACKER_RUN:-${TEXTOP_ROOT}/textop/2026-05-18_19-55-31_transformer_vae_eeobs_g1_before_2023}"
 export TEXTOP_VAE_RUN="${TEXTOP_VAE_RUN:-${TEXTOP_ROOT}/textop/2026-05-12_16-34-08_optitrack_npz_soma_before_2023}"
 export TEXTOP_POLICY_ONNX="${TEXTOP_POLICY_ONNX:-${TEXTOP_TRACKER_RUN}/exported/policy.onnx}"
@@ -146,6 +148,9 @@ serve() {
   if [[ "$USE_RTC" == "1" ]]; then
     serve_args+=(--rtc)
   fi
+  if [[ "$RETURN_FULL_ACTION_CHUNK" == "1" ]]; then
+    serve_args+=(--return-full-action-chunk)
+  fi
   if [[ "${ENABLE_Q_GUIDANCE:-0}" == "1" ]]; then
     serve_args+=(
       --q-guidance-checkpoint "$Q_GUIDANCE_CKPT"
@@ -166,7 +171,7 @@ health() {
 }
 
 kimodo_serve() {
-  cd "$PSI0_ROOT"
+  cd "$KIMODO_ROOT"
 
   export CUDA_VISIBLE_DEVICES="$KIMODO_GPU"
   export HF_HOME="${KIMODO_ROOT}/huggingface"
@@ -175,10 +180,11 @@ kimodo_serve() {
   export HUGGINGFACE_CACHE_DIR="${KIMODO_ROOT}/huggingface/hub"
   export TRANSFORMERS_OFFLINE=1
   export HF_HUB_OFFLINE=1
+  export PYTHONNOUSERSITE=1
   export LOCAL_CACHE="${LOCAL_CACHE:-true}"
   export TEXT_ENCODER_MODE="${TEXT_ENCODER_MODE:-local}"
 
-  "$KIMODO_PYTHON" scripts/deploy/kimodo_generation_server.py
+  "$KIMODO_PYTHON" "${PSI0_ROOT}/scripts/deploy/kimodo_generation_server.py"
 }
 
 download_data() {
@@ -204,6 +210,11 @@ eval_simple() {
   export NO_PROXY="${NO_PROXY:-localhost,127.0.0.1,0.0.0.0,::1}"
   export no_proxy="${no_proxy:-localhost,127.0.0.1,0.0.0.0,::1}"
 
+  VIDEO_FLAG="--save-video"
+  if [[ "$SAVE_VIDEO" == "0" ]]; then
+    VIDEO_FLAG="--no-save-video"
+  fi
+
   python "src/simple/cli/${ENTRY}" \
     "simple/${TASK}" \
     "$AGENT" \
@@ -217,6 +228,7 @@ eval_simple() {
     --data-dir="$DATA_DIR" \
     --num-episodes="$NUM_EPISODES" \
     --episode-start="$EPISODE_START" \
+    "$VIDEO_FLAG" \
 	    ${MAX_EPISODE_STEPS:+--max-episode-steps="$MAX_EPISODE_STEPS"}
 }
 

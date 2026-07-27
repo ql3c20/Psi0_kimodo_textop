@@ -88,6 +88,10 @@ class Config:
     port: int = 22095
     device: str = "cuda"
     strict: bool = True
+    # Prefix-RTC predicts Tp frames, executes Ta frames downstream, and uses
+    # the remaining Tp-Ta normalized actions as the next denoising prefix.
+    prefix_rtc: bool = False
+    action_exec_horizon: int = 34
 
 
 class Server:
@@ -112,6 +116,48 @@ class Server:
             device=cfg.device,
             strict=cfg.strict,
         )
+        self.prefix_rtc = bool(cfg.prefix_rtc)
+        if self.prefix_rtc:
+            import sys
+
+            deploy_dir = str(Path(__file__).resolve().parent)
+            if deploy_dir not in sys.path:
+                sys.path.insert(0, deploy_dir)
+            from gr00t_n17_prefix_rtc import apply_prefix_rtc
+
+            apply_prefix_rtc(self.policy)
+
+        self.action_chunk_size = len(
+            self.policy.modality_configs["action"].delta_indices
+        )
+        self.action_exec_horizon = int(cfg.action_exec_horizon)
+        self.rtc_overlap_steps = (
+            self.action_chunk_size - self.action_exec_horizon
+        )
+        self.previous_normalized_action: np.ndarray | None = None
+        if self.prefix_rtc and not (
+            0 < self.rtc_overlap_steps < self.action_chunk_size
+        ):
+            raise ValueError(
+                "Prefix-RTC requires 0 < prediction_horizon - "
+                "action_exec_horizon < prediction_horizon; got "
+                f"prediction_horizon={self.action_chunk_size}, "
+                f"action_exec_horizon={self.action_exec_horizon}"
+            )
+
+        print(f"[gr00t-sonic-server] loaded {cfg.model_path}")
+        print(
+            "[gr00t-sonic-server] prediction horizon="
+            f"{self.action_chunk_size}"
+        )
+        if self.prefix_rtc:
+            print(
+                "[gr00t-sonic-server] Prefix-RTC enabled: "
+                f"execute={self.action_exec_horizon}, "
+                f"prefix overlap={self.rtc_overlap_steps}"
+            )
+        else:
+            print("[gr00t-sonic-server] Prefix-RTC disabled")
 
     @staticmethod
     def _allow_local_cosmos_backbone() -> None:
@@ -200,13 +246,51 @@ class Server:
             for name, start, end in self.STATE_PARTS:
                 observation["state"][name] = state[..., start:end]
 
-            action, _ = self.policy.get_action(observation)
+            options: dict[str, Any] | None = None
+            if self.prefix_rtc:
+                history = request.get("history") or {}
+                if isinstance(history, dict) and history.get("reset", False):
+                    self.previous_normalized_action = None
+                if self.previous_normalized_action is not None:
+                    options = {
+                        "rtc_prev_action": self.previous_normalized_action,
+                        "action_horizon": int(
+                            self.previous_normalized_action.shape[1]
+                        ),
+                        "rtc_overlap_steps": self.rtc_overlap_steps,
+                    }
+                    print(
+                        "[gr00t-sonic-server] Prefix-RTC step: carry "
+                        f"tail[{self.action_exec_horizon}:"
+                        f"{self.action_chunk_size}]"
+                    )
+                else:
+                    print(
+                        "[gr00t-sonic-server] Prefix-RTC reset/first step: "
+                        "unconditioned generation"
+                    )
+
+            action, info = self.policy.get_action(observation, options)
+            if self.prefix_rtc:
+                normalized_pred = info.get("normalized_action_pred")
+                if normalized_pred is None:
+                    raise RuntimeError(
+                        "Prefix-RTC policy did not return normalized_action_pred"
+                    )
+                self.previous_normalized_action = np.asarray(
+                    normalized_pred, dtype=np.float32
+                )
+
             motion = self._pick(action, "motion_token")
             left_hand = self._pick(action, "left_hand_joints")
             right_hand = self._pick(action, "right_hand_joints")
             output = np.concatenate([motion, left_hand, right_hand], axis=-1)
             if output.shape[0] == 1:
                 output = output[0]
+            if output.ndim != 2 or output.shape[1] != 78:
+                raise ValueError(
+                    f"Expected GR00T SONIC output (T, 78), got {output.shape}"
+                )
 
             return JSONResponse(
                 content=_numpy_encode(
