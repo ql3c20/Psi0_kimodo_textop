@@ -22,6 +22,12 @@ case "${1:-}" in
         --prefix-rtc
         --action-exec-horizon "${GR00T_EXECUTION_HORIZON:-34}"
       )
+      if [[ -n "${GR00T_PREFIX_RTC_TIMESTEP_MODE:-}" ]]; then
+        PREFIX_RTC_ARGS+=(
+          --prefix-rtc-timestep-mode
+          "$GR00T_PREFIX_RTC_TIMESTEP_MODE"
+        )
+      fi
     fi
     exec .venv/bin/python \
       "${PSI0_ROOT}/scripts/deploy/gr00t_n17_sonic_server.py" \

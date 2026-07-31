@@ -14,8 +14,10 @@ set -euo pipefail
 #
 # RTC modes (server side):
 #   GR00T_USE_RTC=1              official soft vel_strength freeze (default)
-#   GR00T_PREFIX_RTC=1           Psi0-style hard-rewrite + prefix t=0 + token AdaLN
-#                                (implies RTC continuity; preferred for RTC-trained ckpts)
+#   GR00T_PREFIX_RTC=1           Hard-rewrite prefix + per-token timestep AdaLN
+#                                (implies RTC continuity)
+#   GR00T_PREFIX_RTC_TIMESTEP_MODE=legacy_zero|groot_clean
+#                                Optional override; otherwise read from checkpoint.
 # Keep POLICY_EXECUTION_HORIZON == GR00T_EXECUTION_HORIZON so the server's
 # carry-over aligns with what the client actually executed.
 #
@@ -64,6 +66,12 @@ case "${1:-}" in
     )
     if [[ "$GR00T_PREFIX_RTC" == "1" ]]; then
       serve_args+=(--prefix-rtc)
+      if [[ -n "${GR00T_PREFIX_RTC_TIMESTEP_MODE:-}" ]]; then
+        serve_args+=(
+          --prefix-rtc-timestep-mode
+          "$GR00T_PREFIX_RTC_TIMESTEP_MODE"
+        )
+      fi
     fi
     if [[ "$GR00T_USE_RTC" == "1" || "$GR00T_PREFIX_RTC" == "1" ]]; then
       serve_args+=(--enable-rtc)

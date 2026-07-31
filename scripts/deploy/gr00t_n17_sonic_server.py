@@ -91,6 +91,9 @@ class Config:
     # Prefix-RTC predicts Tp frames, executes Ta frames downstream, and uses
     # the remaining Tp-Ta normalized actions as the next denoising prefix.
     prefix_rtc: bool = False
+    # None selects the mode stored in the checkpoint; old checkpoints without
+    # the field resolve to legacy_zero.
+    prefix_rtc_timestep_mode: str | None = None
     action_exec_horizon: int = 34
 
 
@@ -125,7 +128,10 @@ class Server:
                 sys.path.insert(0, deploy_dir)
             from gr00t_n17_prefix_rtc import apply_prefix_rtc
 
-            apply_prefix_rtc(self.policy)
+            apply_prefix_rtc(
+                self.policy,
+                prefix_timestep_mode=cfg.prefix_rtc_timestep_mode,
+            )
 
         self.action_chunk_size = len(
             self.policy.modality_configs["action"].delta_indices
@@ -154,7 +160,9 @@ class Server:
             print(
                 "[gr00t-sonic-server] Prefix-RTC enabled: "
                 f"execute={self.action_exec_horizon}, "
-                f"prefix overlap={self.rtc_overlap_steps}"
+                f"prefix overlap={self.rtc_overlap_steps}, "
+                "timestep_mode="
+                f"{self.policy.model.action_head._prefix_rtc_timestep_mode}"
             )
         else:
             print("[gr00t-sonic-server] Prefix-RTC disabled")

@@ -148,11 +148,13 @@ class Config:
     #
     # Modes:
     #   --enable-rtc            official soft vel_strength freeze (needs frozen/ramp)
-    #   --prefix-rtc            Psi0-style hard-rewrite + prefix t=0 + token AdaLN
+    #   --prefix-rtc            Hard-rewrite prefix + per-token timestep AdaLN
     #                           (via gr00t_n17_prefix_rtc.apply_prefix_rtc; also
-    #                           implies RTC continuity)
+    #                           implies RTC continuity). The timestep convention
+    #                           defaults to the checkpoint config.
     enable_rtc: bool = False
     prefix_rtc: bool = False
+    prefix_rtc_timestep_mode: str | None = None
     # Number of chunk frames the downstream SIMPLE executor consumes before it
     # re-requests (must match POLICY_EXECUTION_HORIZON on the client side).
     action_exec_horizon: int = 34
@@ -205,7 +207,10 @@ class Server:
                 sys.path.insert(0, _deploy_dir)
             from gr00t_n17_prefix_rtc import apply_prefix_rtc
 
-            apply_prefix_rtc(self.policy)
+            apply_prefix_rtc(
+                self.policy,
+                prefix_timestep_mode=cfg.prefix_rtc_timestep_mode,
+            )
 
         horizon = len(self.policy.modality_configs["action"].delta_indices)
         print(f"[gr00t-rot6d59-server] loaded {cfg.model_path}")
@@ -230,7 +235,13 @@ class Server:
                 )
             self.rtc_frozen_steps = max(0, min(self.rtc_frozen_steps, self.rtc_overlap_steps))
             if self.prefix_rtc:
-                mode = "prefix-rtc (hard-rewrite + prefix t=0 + token AdaLN)"
+                resolved_timestep_mode = (
+                    self.policy.model.action_head._prefix_rtc_timestep_mode
+                )
+                mode = (
+                    "prefix-rtc (hard-rewrite + token AdaLN, "
+                    f"timestep_mode={resolved_timestep_mode})"
+                )
             else:
                 mode = (
                     f"official soft_freeze(frozen={self.rtc_frozen_steps}, "

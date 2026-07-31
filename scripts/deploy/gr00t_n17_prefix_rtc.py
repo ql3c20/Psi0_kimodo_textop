@@ -7,13 +7,15 @@ Enable via serve ``--prefix-rtc``.  After loading an official ``Gr00tPolicy``,
 1. Action encoder: accept ``(B, T)`` timesteps (prefix frames at t=0).
 2. DiT / AlternateVLDiT AdaLN: accept per-token ``temb (B, T, D)``.
 3. Inference ``get_action_with_features``: hard-rewrite overlap every denoising
-   step + prefix t=0 (no ``vel_strength`` soft freeze).
+   step (no ``vel_strength`` soft freeze), with a selectable prefix timestep:
+   ``legacy_zero`` for existing checkpoints or ``groot_clean`` for GR00T's
+   clean flow endpoint.
 
 Native GR00T (no ``--prefix-rtc``) is unchanged.  Weights are reused as-is;
 no new parameters are introduced.
 
-Training helper ``apply_prefix_rtc_train(action_head)`` mirrors the same
-per-frame t=0 + token AdaLN conditioning for continued RTC finetuning.
+Training helper ``apply_prefix_rtc_train(action_head)`` mirrors the selected
+per-frame prefix timestep + token AdaLN conditioning for RTC finetuning.
 """
 
 from __future__ import annotations
@@ -24,6 +26,48 @@ import types
 import torch
 import torch.nn.functional as F
 from transformers.feature_extraction_utils import BatchFeature
+
+
+_PREFIX_TIMESTEP_MODES = {"legacy_zero", "groot_clean"}
+
+
+def _normalize_prefix_timestep_mode(mode: str) -> str:
+    aliases = {
+        "legacy": "legacy_zero",
+        "zero": "legacy_zero",
+        "groot": "groot_clean",
+        "groot_style": "groot_clean",
+        "clean": "groot_clean",
+    }
+    normalized = aliases.get(str(mode).strip().lower(), str(mode).strip().lower())
+    if normalized not in _PREFIX_TIMESTEP_MODES:
+        raise ValueError(
+            "prefix_rtc_timestep_mode must be one of "
+            f"{sorted(_PREFIX_TIMESTEP_MODES)}, got {mode!r}"
+        )
+    return normalized
+
+
+def _resolve_prefix_timestep_mode(action_head, explicit_mode: str | None) -> str:
+    if explicit_mode is None:
+        explicit_mode = getattr(
+            action_head.config,
+            "prefix_rtc_timestep_mode",
+            "legacy_zero",
+        )
+    return _normalize_prefix_timestep_mode(explicit_mode)
+
+
+def _prefix_timestep_bucket(action_head) -> int:
+    mode = getattr(action_head, "_prefix_rtc_timestep_mode", "legacy_zero")
+    if mode == "legacy_zero":
+        return 0
+    if mode == "groot_clean":
+        # GR00T uses x_t=(1-t)*noise+t*action, so clean data is t=1.
+        # Training discretizes t<1 into [0, num_timestep_buckets-1]; use the
+        # last in-distribution bucket instead of the unseen exact endpoint.
+        return max(int(action_head.num_timestep_buckets) - 1, 0)
+    raise RuntimeError(f"Unsupported resolved prefix timestep mode: {mode!r}")
 
 
 # ---------------------------------------------------------------------------
@@ -196,7 +240,7 @@ def _patched_alternate_vl_dit_forward(
 
 
 # ---------------------------------------------------------------------------
-# Inference: Psi0-style hard rewrite + prefix t=0
+# Inference: hard rewrite + selectable prefix timestep convention
 # ---------------------------------------------------------------------------
 
 
@@ -253,9 +297,10 @@ def _prefix_rtc_get_action_with_features(
         )
 
         if rtc_prefix is not None:
-            # Action tokens: prefix t=0, suffix = current denoising t.
+            # Action tokens: prefix uses the selected endpoint convention;
+            # suffix uses the current GR00T denoising timestep.
             t_action = t_global[:, None].expand(-1, action_horizon).clone()
-            t_action[:, :rtc_overlap_steps] = 0
+            t_action[:, :rtc_overlap_steps] = _prefix_timestep_bucket(self)
             action_features = self.action_encoder(actions, t_action, embodiment_id)
             # sa_embs = [state | actions]; state uses global t, actions use t_action.
             t_sa = torch.cat([t_global[:, None], t_action], dim=1)  # (B, 1+Tp)
@@ -302,7 +347,7 @@ def _prefix_rtc_get_action_with_features(
 
 
 # ---------------------------------------------------------------------------
-# Training: per-frame t=0 + token AdaLN (on top of existing train_rtc clean prefix)
+# Training: per-frame prefix timestep + token AdaLN on clean-prefix RTC
 # ---------------------------------------------------------------------------
 
 
@@ -310,7 +355,7 @@ def _prefix_rtc_compute_loss(self, backbone_output: BatchFeature, action_input: 
     """Action-head training forward with prefix-rtc time conditioning.
 
     Mirrors official train_rtc (clean prefix + loss mask) and additionally:
-    - action encoder gets per-frame t (prefix=0)
+    - action encoder gets a per-frame prefix timestep selected by mode
     - DiT gets (B, 1+Tp) timesteps for token AdaLN
     """
     self.set_frozen_modules_to_eval_mode()
@@ -366,7 +411,8 @@ def _prefix_rtc_compute_loss(self, backbone_output: BatchFeature, action_input: 
     t_discretized = (t[:, 0, 0] * self.num_timestep_buckets).long()
     if rtc_prefix_mask is not None:
         t_action = t_discretized[:, None].expand(-1, actions.shape[1]).clone()
-        t_action = torch.where(rtc_prefix_mask, torch.zeros_like(t_action), t_action)
+        prefix_t = torch.full_like(t_action, _prefix_timestep_bucket(self))
+        t_action = torch.where(rtc_prefix_mask, prefix_t, t_action)
         action_features = self.action_encoder(noisy_trajectory, t_action, embodiment_id)
         t_sa = torch.cat([t_discretized[:, None], t_action], dim=1)
     else:
@@ -443,10 +489,15 @@ def _patch_dit_stack(dit_module) -> None:
         dit_module.forward = types.MethodType(_patched_dit_forward, dit_module)
 
 
-def apply_prefix_rtc(policy) -> None:
+def apply_prefix_rtc(
+    policy,
+    prefix_timestep_mode: str | None = None,
+) -> None:
     """Enable prefix-rtc inference on a loaded ``Gr00tPolicy`` (in-place)."""
     model = policy.model
     action_head = model.action_head
+    resolved_mode = _resolve_prefix_timestep_mode(action_head, prefix_timestep_mode)
+    action_head._prefix_rtc_timestep_mode = resolved_mode
 
     action_head.action_encoder.forward = types.MethodType(
         _patched_action_encoder_forward, action_head.action_encoder
@@ -473,16 +524,23 @@ def apply_prefix_rtc(policy) -> None:
     action_head._prefix_rtc_enabled = True
     print(
         "[prefix-rtc] enabled on policy: hard-rewrite overlap + "
-        "action-encoder prefix t=0 + DiT per-token AdaLN"
+        f"prefix_timestep_mode={resolved_mode} "
+        f"(bucket={_prefix_timestep_bucket(action_head)}) + DiT per-token AdaLN"
     )
 
 
-def apply_prefix_rtc_train(action_head) -> None:
+def apply_prefix_rtc_train(
+    action_head,
+    prefix_timestep_mode: str | None = None,
+) -> None:
     """Enable prefix-rtc training conditioning on a ``Gr00tN1d7ActionHead``.
 
     Requires ``config.train_rtc=True`` for clean-prefix + loss-mask behavior.
-    Additionally routes per-frame t=0 through the action encoder and DiT.
+    Additionally routes the selected per-frame prefix timestep through the
+    action encoder and DiT.
     """
+    resolved_mode = _resolve_prefix_timestep_mode(action_head, prefix_timestep_mode)
+    action_head._prefix_rtc_timestep_mode = resolved_mode
     action_head.action_encoder.forward = types.MethodType(
         _patched_action_encoder_forward, action_head.action_encoder
     )
@@ -504,6 +562,8 @@ def apply_prefix_rtc_train(action_head) -> None:
         action_head._prefix_rtc_original_forward = original_forward
     action_head._prefix_rtc_train_enabled = True
     print(
-        "[prefix-rtc] train hook enabled: clean prefix + per-frame t=0 + "
+        "[prefix-rtc] train hook enabled: clean prefix + "
+        f"prefix_timestep_mode={resolved_mode} "
+        f"(bucket={_prefix_timestep_bucket(action_head)}) + "
         "DiT per-token AdaLN (set config.train_rtc=True)"
     )
