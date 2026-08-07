@@ -16,12 +16,12 @@ python scripts/data/build_movepick_rot6d59_dataset.py \
 ```bash
 cd /pfs/pfs-oHNwH0/mnt/pfs/humanoid/yzh/Isaac-GR00T
 
-CUDA_VISIBLE_DEVICES=4,5,6,7 \
+CUDA_VISIBLE_DEVICES=0,1,2,3 \
 NUM_GPUS=4 \
 MASTER_PORT=29531 \
-MAX_STEPS=160000 \
+MAX_STEPS=80000 \
 SAVE_STEPS=10000 \
-GLOBAL_BATCH_SIZE=32 \
+GLOBAL_BATCH_SIZE=64 \
 DATALOADER_NUM_WORKERS=4 \
 TRAIN_PREFIX_RTC=1 \
 GR00T_PREFIX_RTC_TIMESTEP_MODE=groot_clean \
@@ -31,10 +31,12 @@ uv run --no-sync bash examples/finetune.sh \
   --dataset-path /pfs/pfs-oHNwH0/mnt/pfs/humanoid/yzh/Psi0/data/output/fullstate_20260729_task4_rot6d59 \
   --modality-config-path /pfs/pfs-oHNwH0/mnt/pfs/humanoid/yzh/Isaac-GR00T/examples/unitree_g1_rot6d59_config.py \
   --embodiment-tag NEW_EMBODIMENT \
-  --output-dir /pfs/pfs-oHNwH0/mnt/pfs/humanoid/yzh/Isaac-GR00T/outputs/task4-gr00t-n17-rot6d59-kimodo-textop-prefix-rtc-groot-clean \
+  --output-dir /pfs/pfs-oHNwH0/mnt/pfs/humanoid/yzh/Isaac-GR00T/outputs/task4-gr00t-n17-rot6d59-kimodo-textop-prefix-rtc-groot-clean-A800 \
   --wandb-project gr00t-n1.7
 ```
 #   uv sync --frozen --python /usr/bin/python3.10 --verbose
+
+# 任务场景初始化数据放在/pfs/pfs-oHNwH0/mnt/pfs/humanoid/yzh/HumanoidVLA_MJ_1/output/20260612_task3
 
 
 # gr00t->kimodo->texop链路评测（写新的fullstate_task1_gr00t_rot6d59_kimodo_textop_eval.sh和Psi0/third_party/SIMPLE/src/simple/tasks/g1_fullstate_20260615_task1.py文件）
@@ -95,16 +97,16 @@ NUM_GPUS=4 \
 MASTER_PORT=29531 \
 MAX_STEPS=80000 \
 SAVE_STEPS=10000 \
-GLOBAL_BATCH_SIZE=32 \
+GLOBAL_BATCH_SIZE=64 \
 DATALOADER_NUM_WORKERS=4 \
 TRAIN_PREFIX_RTC=1 \
 GR00T_PREFIX_RTC_TIMESTEP_MODE=groot_clean \
 USE_WANDB=1 \
 uv run --no-sync bash examples/finetune.sh \
   --base-model-path /pfs/pfs-oHNwH0/mnt/pfs/humanoid/yzh/Psi0/checkpoints/GR00T-N1.7-3B \
-  --dataset-path /pfs/pfs-oHNwH0/mnt/pfs/humanoid/yzh/Psi0/data/output/fullstate_20260612_task3_gr00t_new \
+  --dataset-path /pfs/pfs-oHNwH0/mnt/pfs/humanoid/yzh/Psi0/data/output/fullstate_20260729_task4_gr00t_new \
   --embodiment-tag UNITREE_G1_SONIC \
-  --output-dir /pfs/pfs-oHNwH0/mnt/pfs/humanoid/yzh/Isaac-GR00T/outputs/task3-gr00t-n17-sonic-prefix-rtc-groot-clean \
+  --output-dir /pfs/pfs-oHNwH0/mnt/pfs/humanoid/yzh/Isaac-GR00T/outputs/task4-gr00t-n17-sonic-prefix-rtc-groot-clean \
   --wandb-project gr00t-n1.7 \
 ```
 # 终端1
@@ -115,8 +117,8 @@ SERVE_GPU=1 \
 GR00T_PREFIX_RTC=1 \
 GR00T_PREFIX_RTC_TIMESTEP_MODE=groot_clean \
 GR00T_EXECUTION_HORIZON=34 \
-GR00T_MODEL_PATH=/pfs/pfs-oHNwH0/mnt/pfs/humanoid/yzh/Isaac-GR00T/outputs/task3-gr00t-n17-sonic-prefix-rtc-groot-clean/checkpoint-80000 \
-bash scripts/deploy/fullstate_task3_gr00t_n17_sonic_eval.sh serve
+GR00T_MODEL_PATH=/pfs/pfs-oHNwH0/mnt/pfs/humanoid/yzh/Isaac-GR00T/outputs/task4-gr00t-n17-rot6d59-kimodo-textop-prefix-rtc-groot-clean/checkpoint-160000 \
+bash scripts/deploy/fullstate_task4_gr00t_n17_sonic_eval.sh serve
 
 ```
 
