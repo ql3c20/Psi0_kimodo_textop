@@ -161,6 +161,12 @@ class Config:
     # Soft-freeze knobs for official --enable-rtc (ignored under --prefix-rtc).
     rtc_frozen_steps: int = 2
     rtc_ramp_rate: float = 2.0
+    # --- TensorRT ------------------------------------------------------------
+    # First-stage TRT support accelerates only the Qwen3-VL backbone
+    # (ViT + LLM) and leaves the RTC action head in PyTorch.
+    trt_engine_dir: Path | None = None
+    trt_mode: str = "vit_llm_only"
+    trt_deploy_dir: Path | None = None
 
 
 class Server:
@@ -211,6 +217,7 @@ class Server:
                 self.policy,
                 prefix_timestep_mode=cfg.prefix_rtc_timestep_mode,
             )
+        self._setup_tensorrt_if_requested()
 
         horizon = len(self.policy.modality_configs["action"].delta_indices)
         print(f"[gr00t-rot6d59-server] loaded {cfg.model_path}")
@@ -300,6 +307,60 @@ class Server:
             raise RuntimeError(f"Could not load {self.cfg.modality_config_path}")
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)
+
+    def _resolve_trt_deploy_dir(self) -> Path:
+        if self.cfg.trt_deploy_dir is not None:
+            deploy_dir = self.cfg.trt_deploy_dir
+            if (deploy_dir / "trt_model_forward.py").is_file():
+                return deploy_dir
+            raise FileNotFoundError(
+                "Could not locate trt_model_forward.py under explicit "
+                f"--trt-deploy-dir: {deploy_dir}"
+            )
+
+        candidates: list[Path] = []
+        env_root = os.environ.get("GR00T_ROOT")
+        if env_root:
+            candidates.append(Path(env_root) / "scripts" / "deployment")
+        modality_repo_root = self.cfg.modality_config_path.resolve().parents[1]
+        candidates.append(modality_repo_root / "scripts" / "deployment")
+        candidates.append(Path.cwd() / "scripts" / "deployment")
+
+        for candidate in candidates:
+            if (candidate / "trt_model_forward.py").is_file():
+                return candidate
+        searched = ", ".join(str(path) for path in candidates)
+        raise FileNotFoundError(
+            "Could not locate Isaac-GR00T scripts/deployment/trt_model_forward.py; "
+            f"searched: {searched}. Set --trt-deploy-dir explicitly."
+        )
+
+    def _setup_tensorrt_if_requested(self) -> None:
+        if self.cfg.trt_engine_dir is None:
+            return
+        engine_dir = self.cfg.trt_engine_dir
+        if not engine_dir.is_dir():
+            raise FileNotFoundError(f"TRT engine directory does not exist: {engine_dir}")
+        trt_mode = str(self.cfg.trt_mode).strip()
+        rtc_requested = bool(self.cfg.enable_rtc) or bool(self.cfg.prefix_rtc)
+        if rtc_requested and trt_mode != "vit_llm_only":
+            raise ValueError(
+                "RTC/Prefix-RTC currently supports only --trt-mode vit_llm_only. "
+                "Action-head TRT does not yet implement rtc_prev_action hard-prefix semantics."
+            )
+
+        import sys
+
+        deploy_dir = self._resolve_trt_deploy_dir()
+        if str(deploy_dir) not in sys.path:
+            sys.path.insert(0, str(deploy_dir))
+        from trt_model_forward import setup_tensorrt_engines
+
+        setup_tensorrt_engines(self.policy, str(engine_dir), mode=trt_mode)
+        print(
+            "[gr00t-rot6d59-server] TensorRT enabled: "
+            f"mode={trt_mode}, engine_dir={engine_dir}"
+        )
 
     @staticmethod
     def _pick(action: dict[str, Any], key: str) -> np.ndarray:

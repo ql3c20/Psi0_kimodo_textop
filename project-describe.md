@@ -178,3 +178,22 @@ SIMPLE 侧主 agent 是 `third_party/SIMPLE/src/simple/baselines/psi0_kimodo_tex
 - RTC overlap `Tp - Ta = 6`。
 
 Kimodo 和 TextOp 始终接收完整 40 帧 chunk；只有最终仿真执行阶段会裁成前 34 个 tracker step，然后重新规划。
+
+
+# TRT vit+LLM启动
+
+cd /pfs/pfs-oHNwH0/mnt/pfs/humanoid/yzh/Psi0
+
+export PSI0_ROOT=/pfs/pfs-oHNwH0/mnt/pfs/humanoid/yzh/Psi0
+export GR00T_ROOT=/pfs/pfs-oHNwH0/mnt/pfs/humanoid/yzh/Isaac-GR00T
+export GR00T_PYTHON=$GR00T_ROOT/.venv.bak-py310-20260731/bin/python
+
+export GR00T_TRT_ENGINE_DIR=$PSI0_ROOT/outputs/gr00t_trt/task4_prefixrtc_ckpt160k_vit_llm/engines
+export GR00T_TRT_MODE=vit_llm_only
+export SERVE_GPU=6
+
+export TMPDIR=$PSI0_ROOT/outputs/tmp_trt_server
+export CUDA_CACHE_PATH=$PSI0_ROOT/outputs/cuda_cache
+mkdir -p "$TMPDIR" "$CUDA_CACHE_PATH"
+
+bash scripts/deploy/fullstate_task4_gr00t_rot6d59_kimodo_textop_eval.sh serve

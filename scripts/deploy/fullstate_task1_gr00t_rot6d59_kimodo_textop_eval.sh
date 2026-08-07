@@ -18,6 +18,9 @@ set -euo pipefail
 #                                (implies RTC continuity)
 #   GR00T_PREFIX_RTC_TIMESTEP_MODE=legacy_zero|groot_clean
 #                                Optional override; otherwise read from checkpoint.
+# TensorRT first-stage acceleration:
+#   GR00T_TRT_ENGINE_DIR=/path/to/engines
+#   GR00T_TRT_MODE=vit_llm_only   # ViT + LLM TRT, RTC action head stays PyTorch.
 # Keep POLICY_EXECUTION_HORIZON == GR00T_EXECUTION_HORIZON so the server's
 # carry-over aligns with what the client actually executed.
 #
@@ -34,6 +37,7 @@ BASE_SCRIPT="${PSI0_ROOT}/scripts/deploy/simple_psi0_kimodo_eval_commands.sh"
 GR00T_MODEL_PATH="${GR00T_MODEL_PATH:-${GR00T_ROOT}/outputs/task1-gr00t-n17-rot6d59-kimodo-textop/task1-gr00t-n17-rot6d59-kimodo-textop/checkpoint-120000}"
 GR00T_BACKBONE_PATH="${GR00T_BACKBONE_PATH:-${PSI0_ROOT}/huggingface/hub/models--nvidia--Cosmos-Reason2-2B/snapshots/9ce19a195e423419c349abfc86fd07178b230561}"
 GR00T_MODALITY_CONFIG_PATH="${GR00T_MODALITY_CONFIG_PATH:-${GR00T_ROOT}/examples/unitree_g1_rot6d59_config.py}"
+GR00T_PYTHON="${GR00T_PYTHON:-${GR00T_ROOT}/.venv/bin/python}"
 GR00T_PORT="${GR00T_PORT:-22096}"
 # RTC: predict 40, execute 34, carry over 40-34 = 6 frames to the next chunk.
 GR00T_EXECUTION_HORIZON="${GR00T_EXECUTION_HORIZON:-34}"
@@ -64,6 +68,15 @@ case "${1:-}" in
       --rtc-frozen-steps "$GR00T_RTC_FROZEN_STEPS"
       --rtc-ramp-rate "$GR00T_RTC_RAMP_RATE"
     )
+    if [[ -n "${GR00T_TRT_ENGINE_DIR:-}" ]]; then
+      serve_args+=(
+        --trt-engine-dir "$GR00T_TRT_ENGINE_DIR"
+        --trt-mode "${GR00T_TRT_MODE:-vit_llm_only}"
+      )
+      if [[ -n "${GR00T_TRT_DEPLOY_DIR:-}" ]]; then
+        serve_args+=(--trt-deploy-dir "$GR00T_TRT_DEPLOY_DIR")
+      fi
+    fi
     if [[ "$GR00T_PREFIX_RTC" == "1" ]]; then
       serve_args+=(--prefix-rtc)
       if [[ -n "${GR00T_PREFIX_RTC_TIMESTEP_MODE:-}" ]]; then
@@ -78,7 +91,7 @@ case "${1:-}" in
     else
       serve_args+=(--no-enable-rtc)
     fi
-    exec .venv/bin/python \
+    exec "$GR00T_PYTHON" \
       "${PSI0_ROOT}/scripts/deploy/gr00t_n17_rot6d59_server.py" \
       "${serve_args[@]}"
     ;;
