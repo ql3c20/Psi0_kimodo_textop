@@ -20,6 +20,7 @@ from dataclasses import dataclass
 import importlib.util
 import os
 from pathlib import Path
+import time
 from typing import Any
 
 import numpy as np
@@ -162,11 +163,17 @@ class Config:
     rtc_frozen_steps: int = 2
     rtc_ramp_rate: float = 2.0
     # --- TensorRT ------------------------------------------------------------
-    # First-stage TRT support accelerates only the Qwen3-VL backbone
-    # (ViT + LLM) and leaves the RTC action head in PyTorch.
+    # TRT support:
+    #   vit_llm_only              -> Qwen3-VL backbone TRT, RTC action head in PyTorch
+    #   prefix_rtc_action_head    -> backbone in PyTorch, Prefix-RTC action head TRT
+    #   prefix_rtc_full_pipeline  -> ViT + LLM + VLSA + Prefix-RTC action head TRT
     trt_engine_dir: Path | None = None
     trt_mode: str = "vit_llm_only"
     trt_deploy_dir: Path | None = None
+    # Print policy.get_action latency for online eval. This measures model
+    # inference only, not HTTP serialization or SIMPLE-side work.
+    log_inference_timing: bool = True
+    inference_timing_window: int = 20
 
 
 class Server:
@@ -232,6 +239,8 @@ class Server:
         self.rtc_frozen_steps = int(cfg.rtc_frozen_steps)
         self.rtc_ramp_rate = float(cfg.rtc_ramp_rate)
         self.previous_normalized_action: np.ndarray | None = None
+        self._num_action_requests = 0
+        self._recent_inference_ms: list[float] = []
         if self.enable_rtc:
             if not (0 < self.rtc_overlap_steps < self.action_chunk_size):
                 raise ValueError(
@@ -343,10 +352,16 @@ class Server:
             raise FileNotFoundError(f"TRT engine directory does not exist: {engine_dir}")
         trt_mode = str(self.cfg.trt_mode).strip()
         rtc_requested = bool(self.cfg.enable_rtc) or bool(self.cfg.prefix_rtc)
-        if rtc_requested and trt_mode != "vit_llm_only":
+        rtc_safe_trt_modes = {
+            "vit_llm_only",
+            "prefix_rtc_action_head",
+            "prefix_rtc_full_pipeline",
+        }
+        if rtc_requested and trt_mode not in rtc_safe_trt_modes:
             raise ValueError(
-                "RTC/Prefix-RTC currently supports only --trt-mode vit_llm_only. "
-                "Action-head TRT does not yet implement rtc_prev_action hard-prefix semantics."
+                "RTC/Prefix-RTC supports only RTC-aware TensorRT modes: "
+                f"{sorted(rtc_safe_trt_modes)}. "
+                "Plain action-head TRT does not implement rtc_prev_action hard-prefix semantics."
             )
 
         import sys
@@ -376,6 +391,32 @@ class Server:
                 return image_dict[key]
         raise KeyError(
             "Missing ego image; expected one of ego_view/rgb_head_stereo_left/head_stereo_left"
+        )
+
+    def _record_inference_timing(self, elapsed_ms: float) -> None:
+        if not self.cfg.log_inference_timing:
+            return
+
+        self._num_action_requests += 1
+        window = max(1, int(self.cfg.inference_timing_window))
+        self._recent_inference_ms.append(float(elapsed_ms))
+        if len(self._recent_inference_ms) > window:
+            del self._recent_inference_ms[0 : len(self._recent_inference_ms) - window]
+
+        mean_ms = float(np.mean(self._recent_inference_ms))
+        req_hz = 1000.0 / mean_ms if mean_ms > 0 else 0.0
+        exec_fps = self.action_exec_horizon * req_hz
+        chunk_fps = self.action_chunk_size * req_hz
+        trt_mode = self.cfg.trt_mode if self.cfg.trt_engine_dir is not None else "pytorch"
+        print(
+            "[gr00t-rot6d59-server] policy.get_action latency: "
+            f"request={self._num_action_requests}, "
+            f"last={elapsed_ms:.1f} ms, "
+            f"mean{len(self._recent_inference_ms)}={mean_ms:.1f} ms, "
+            f"req_hz={req_hz:.2f}, "
+            f"exec_fps={exec_fps:.1f} (Ta={self.action_exec_horizon}), "
+            f"chunk_fps={chunk_fps:.1f} (Tp={self.action_chunk_size}), "
+            f"mode={trt_mode}"
         )
 
     def act(self, payload: dict[str, Any]) -> JSONResponse:
@@ -421,7 +462,10 @@ class Server:
                 else:
                     print("[gr00t-rot6d59-server] RTC reset/first step: unconditioned generation")
 
+            infer_start = time.perf_counter()
             action, info = self.policy.get_action(observation, options)
+            infer_ms = (time.perf_counter() - infer_start) * 1000.0
+            self._record_inference_timing(infer_ms)
 
             if self.enable_rtc:
                 normalized_pred = info.get("normalized_action_pred")

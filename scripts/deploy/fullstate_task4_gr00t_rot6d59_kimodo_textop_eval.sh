@@ -13,6 +13,14 @@ export GR00T_USE_RTC="${GR00T_USE_RTC:-1}"
 export GR00T_PREFIX_RTC_TIMESTEP_MODE="${GR00T_PREFIX_RTC_TIMESTEP_MODE:-groot_clean}"
 export GR00T_EXECUTION_HORIZON="${GR00T_EXECUTION_HORIZON:-34}"
 export GR00T_PORT="${GR00T_PORT:-22096}"
+export GR00T_USE_TRT="${GR00T_USE_TRT:-1}"
+if [[ "$GR00T_USE_TRT" == "1" ]]; then
+  export GR00T_TRT_ENGINE_DIR="${GR00T_TRT_ENGINE_DIR:-${PSI0_ROOT}/outputs/gr00t_trt/gr00t_n17_rot6d59_prefixrtc_ckpt160k_full_pipeline/engines}"
+  export GR00T_TRT_MODE="${GR00T_TRT_MODE:-prefix_rtc_full_pipeline}"
+else
+  unset GR00T_TRT_ENGINE_DIR
+  unset GR00T_TRT_MODE
+fi
 
 export FULLSTATE_GR00T_TASK="G1Fullstate20260729Task4-v0"
 export MAX_EPISODE_STEPS="${MAX_EPISODE_STEPS:-900}"

@@ -180,20 +180,158 @@ SIMPLE 侧主 agent 是 `third_party/SIMPLE/src/simple/baselines/psi0_kimodo_tex
 Kimodo 和 TextOp 始终接收完整 40 帧 chunk；只有最终仿真执行阶段会裁成前 34 个 tracker step，然后重新规划。
 
 
-# TRT vit+LLM启动
+## GR00T N1.7 Prefix-RTC Clean Full TRT 全流程测试
 
+当前推荐使用 clean full-pipeline TRT，不再使用 merged engine 目录。这个 TRT engine 不绑定 Task4 场景本身；它绑定的是 GR00T N1.7 rot6d59 checkpoint、Prefix-RTC 输入/输出形状、execution horizon 和 TensorRT 构建 profile。Task4 eval 脚本默认使用该 checkpoint，因此可以直接复用这个 engine。全链路 TRT 目录是：
+
+```bash
+/pfs/pfs-oHNwH0/mnt/pfs/humanoid/yzh/Psi0/outputs/gr00t_trt/gr00t_n17_rot6d59_prefixrtc_ckpt160k_full_pipeline/engines
+```
+
+该目录来自一次完整 `prefix_rtc_full_pipeline` 导出和构建，包含 7 个 engine：
+
+```text
+vit.engine
+llm_bf16.engine
+vl_self_attention.engine
+state_encoder.engine
+action_encoder.engine
+dit_bf16.engine
+action_decoder.engine
+```
+
+数据验证结果：
+
+```text
+final action cosine = 0.999998
+prefix cosine      = 1.000000
+prefix Linf        = 0.000000
+suffix cosine      = 0.999996
+PASS -- Prefix-RTC TRT matches PyTorch
+```
+
+`scripts/deploy/fullstate_task4_gr00t_rot6d59_kimodo_textop_eval.sh` 默认已经设置：
+
+```bash
+GR00T_USE_TRT=1
+GR00T_TRT_MODE=prefix_rtc_full_pipeline
+GR00T_TRT_ENGINE_DIR=$PSI0_ROOT/outputs/gr00t_trt/gr00t_n17_rot6d59_prefixrtc_ckpt160k_full_pipeline/engines
+```
+
+正常运行时不需要再手动指向 merged 目录。如果要临时关闭 TRT，用：
+
+```bash
+export GR00T_USE_TRT=0
+```
+
+### 终端 1：GR00T full TRT server
+
+```bash
 cd /pfs/pfs-oHNwH0/mnt/pfs/humanoid/yzh/Psi0
 
 export PSI0_ROOT=/pfs/pfs-oHNwH0/mnt/pfs/humanoid/yzh/Psi0
 export GR00T_ROOT=/pfs/pfs-oHNwH0/mnt/pfs/humanoid/yzh/Isaac-GR00T
 export GR00T_PYTHON=$GR00T_ROOT/.venv.bak-py310-20260731/bin/python
 
-export GR00T_TRT_ENGINE_DIR=$PSI0_ROOT/outputs/gr00t_trt/task4_prefixrtc_ckpt160k_vit_llm/engines
-export GR00T_TRT_MODE=vit_llm_only
 export SERVE_GPU=6
+export GR00T_PORT=22096
+export GR00T_USE_TRT=1  # 设为0可使用原生的无TRT server
+export GR00T_TRT_ENGINE_DIR=$PSI0_ROOT/outputs/gr00t_trt/gr00t_n17_rot6d59_prefixrtc_ckpt160k_full_pipeline/engines
+export GR00T_TRT_MODE=prefix_rtc_full_pipeline
 
 export TMPDIR=$PSI0_ROOT/outputs/tmp_trt_server
 export CUDA_CACHE_PATH=$PSI0_ROOT/outputs/cuda_cache
 mkdir -p "$TMPDIR" "$CUDA_CACHE_PATH"
 
 bash scripts/deploy/fullstate_task4_gr00t_rot6d59_kimodo_textop_eval.sh serve
+```
+
+server 启动日志应出现：
+
+```text
+Loading ViT engine
+Loading LLM engine
+Loading VL Self-Attention engine
+Deleted PyTorch vl_self_attention (replaced by TRT engine)
+Prefix-RTC action head TRT engines loaded
+TensorRT enabled: mode=prefix_rtc_full_pipeline
+RTC enabled ... overlap=6
+```
+
+server 每次 `/act` 会打印 `policy.get_action` 推理耗时，例如：
+
+```text
+[gr00t-rot6d59-server] policy.get_action latency: request=..., last=... ms, mean20=... ms, req_hz=..., exec_fps=... (Ta=34), chunk_fps=... (Tp=40), mode=prefix_rtc_full_pipeline
+```
+
+### 终端 2：Kimodo server
+
+```bash
+cd /pfs/pfs-oHNwH0/mnt/pfs/humanoid/yzh/Psi0
+
+export PSI0_ROOT=/pfs/pfs-oHNwH0/mnt/pfs/humanoid/yzh/Psi0
+export KIMODO_GPU=5
+
+bash scripts/deploy/fullstate_task4_gr00t_rot6d59_kimodo_textop_eval.sh kimodo-serve
+```
+
+### 终端 3：SIMPLE / MuJoCo eval
+
+先跑单条 debug：
+
+```bash
+cd /pfs/pfs-oHNwH0/mnt/pfs/humanoid/yzh/Psi0
+
+export PSI0_ROOT=/pfs/pfs-oHNwH0/mnt/pfs/humanoid/yzh/Psi0
+export EVAL_GPU=4
+export NUM_EPISODES=1
+export SAVE_VIDEO=1
+export TASK4_RECORDING_INDEX=0
+export KIMODO_KEEP_WORK=1
+export GR00T_PORT=22096
+
+export TMPDIR=$PSI0_ROOT/outputs/tmp_simple_eval
+mkdir -p "$TMPDIR"
+
+bash scripts/deploy/fullstate_task4_gr00t_rot6d59_kimodo_textop_eval.sh eval
+```
+
+确认单条能正常跑完后，跑 20 episode：
+
+```bash
+cd /pfs/pfs-oHNwH0/mnt/pfs/humanoid/yzh/Psi0
+
+export PSI0_ROOT=/pfs/pfs-oHNwH0/mnt/pfs/humanoid/yzh/Psi0
+unset TASK4_RECORDING_INDEX
+export EVAL_GPU=4
+export NUM_EPISODES=20
+export SAVE_VIDEO=1
+export TASK4_RECORDING_SEED=0
+export KIMODO_KEEP_WORK=1
+export GR00T_PORT=22096
+
+export TMPDIR=$PSI0_ROOT/outputs/tmp_simple_eval
+mkdir -p "$TMPDIR"
+
+bash scripts/deploy/fullstate_task4_gr00t_rot6d59_kimodo_textop_eval.sh eval
+```
+
+eval 日志和视频目录在 SIMPLE 子仓库下，因为 eval 脚本会 `cd third_party/SIMPLE`：
+
+```bash
+/pfs/pfs-oHNwH0/mnt/pfs/humanoid/yzh/Psi0/third_party/SIMPLE/data/evals_fullstate_20260729_task4_gr00t_rot6d59_kimodo_textop_prefixrtc_grootclean_checkpoint-160000_recording0_xoff0_yoff0
+/pfs/pfs-oHNwH0/mnt/pfs/humanoid/yzh/Psi0/third_party/SIMPLE/data/evals_fullstate_20260729_task4_gr00t_rot6d59_kimodo_textop_prefixrtc_grootclean_checkpoint-160000_recordingseed0_xoff0_yoff0
+```
+
+Kimodo 中间结果在 Psi0 根目录下：
+
+```bash
+/pfs/pfs-oHNwH0/mnt/pfs/humanoid/yzh/Psi0/outputs/kimodo_fullstate_20260729_task4_gr00t_rot6d59_prefixrtc_grootclean_checkpoint-160000_recording0_xoff0_yoff0
+/pfs/pfs-oHNwH0/mnt/pfs/humanoid/yzh/Psi0/outputs/kimodo_fullstate_20260729_task4_gr00t_rot6d59_prefixrtc_grootclean_checkpoint-160000_recordingseed0_xoff0_yoff0
+```
+
+已记录的一次 full TRT 20 episode 结果：`40%`
+
+```bash
+/pfs/pfs-oHNwH0/mnt/pfs/humanoid/yzh/Psi0/third_party/SIMPLE/data/evals_fullstate_20260729_task4_gr00t_rot6d59_kimodo_textop_prefixrtc_grootclean_checkpoint-160000_recordingseed0_xoff0_yoff0
+```
