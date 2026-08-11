@@ -264,6 +264,65 @@ server 每次 `/act` 会打印 `policy.get_action` 推理耗时，例如：
 [gr00t-rot6d59-server] policy.get_action latency: request=..., last=... ms, mean20=... ms, req_hz=..., exec_fps=... (Ta=34), chunk_fps=... (Tp=40), mode=prefix_rtc_full_pipeline
 ```
 
+如需看模型内部耗时，启动 GR00T server 前加：
+
+```bash
+export GR00T_LOG_TIMING_BREAKDOWN=1
+export GR00T_TIMING_SYNC_CUDA=1  # 严格计时时打开；日常低开销观察可不设
+```
+
+日志会额外打印 `processor/collate/backbone/vl_sa/state/act_enc/dit/act_dec/sampler/post_decode/kv_entries/trt_launches`。
+
+### 实验：Prefix-RTC fused sampler TRT
+
+`prefix_rtc_full_pipeline` 当前使用 7 个 engine，action head 在 4 个 denoise step 中重复调用 `action_encoder.engine -> dit_bf16.engine -> action_decoder.engine`。实验模式 `prefix_rtc_full_pipeline_sampler` 会重新导出一个 `prefix_rtc_action_sampler.engine`，把 4-step sampler 融合成单个 TRT engine，并在图内复用 DiT cross-attention 的 encoder K/V。默认 eval 不会自动使用这个模式。
+
+已构建并通过一次数据验证的目录：
+
+```bash
+/pfs/pfs-oHNwH0/mnt/pfs/humanoid/yzh/Psi0/outputs/gr00t_trt/gr00t_n17_rot6d59_prefixrtc_ckpt160k_full_pipeline_sampler/engines
+```
+
+包含 5 个 engine：`vit.engine`、`llm_bf16.engine`、`vl_self_attention.engine`、`state_encoder.engine`、`prefix_rtc_action_sampler.engine`。验证结果：
+
+```text
+final action cosine = 0.999999
+prefix cosine      = 1.000000
+suffix cosine      = 0.999996
+PASS -- Prefix-RTC TRT matches PyTorch
+```
+
+小型同输入 microbenchmark，GPU7，8 次计时、2 次 warmup、`GR00T_TIMING_SYNC_CUDA=1`：
+
+```text
+old prefix_rtc_full_pipeline:      mean_total=45.5 ms, sampler=19.3 ms, trt_launches=12
+new prefix_rtc_full_pipeline_sampler: mean_total=41.7 ms, sampler=15.3 ms, trt_launches=1, kv_entries=16
+```
+
+导出/构建/验证：
+
+```bash
+cd /pfs/pfs-oHNwH0/mnt/pfs/humanoid/yzh/Isaac-GR00T
+export CUDA_VISIBLE_DEVICES=6
+
+python scripts/deployment/build_trt_pipeline.py \
+  --model-path /pfs/pfs-oHNwH0/mnt/pfs/humanoid/yzh/Isaac-GR00T/outputs/task4-gr00t-n17-rot6d59-kimodo-textop-prefix-rtc-groot-clean/checkpoint-160000 \
+  --dataset-path /pfs/pfs-oHNwH0/mnt/pfs/humanoid/yzh/Psi0/data/output/fullstate_20260729_task4_rot6d59 \
+  --modality-config-path examples/unitree_g1_rot6d59_config.py \
+  --embodiment-tag new_embodiment \
+  --output-dir /pfs/pfs-oHNwH0/mnt/pfs/humanoid/yzh/Psi0/outputs/gr00t_trt/gr00t_n17_rot6d59_prefixrtc_ckpt160k_full_pipeline_sampler \
+  --export-mode prefix_rtc_full_pipeline_sampler \
+  --prefix-rtc-timestep-mode groot_clean \
+  --rtc-overlap-steps 6
+```
+
+启动 fused sampler TRT server 时，把 engine 目录和 mode 换成：
+
+```bash
+export GR00T_TRT_ENGINE_DIR=$PSI0_ROOT/outputs/gr00t_trt/gr00t_n17_rot6d59_prefixrtc_ckpt160k_full_pipeline_sampler/engines
+export GR00T_TRT_MODE=prefix_rtc_full_pipeline_sampler
+```
+
 ### 终端 2：Kimodo server
 
 ```bash

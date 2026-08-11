@@ -20,6 +20,8 @@ per-frame prefix timestep + token AdaLN conditioning for RTC finetuning.
 
 from __future__ import annotations
 
+import os
+import time
 from typing import Any, Optional
 import types
 
@@ -29,6 +31,18 @@ from transformers.feature_extraction_utils import BatchFeature
 
 
 _PREFIX_TIMESTEP_MODES = {"legacy_zero", "groot_clean"}
+
+
+def _env_flag(name: str, default: bool = False) -> bool:
+    value = os.environ.get(name)
+    if value is None:
+        return default
+    return value.lower() in {"1", "true", "yes", "on"}
+
+
+def _sync_for_timing(device: torch.device, enabled: bool) -> None:
+    if enabled and device.type == "cuda" and torch.cuda.is_available():
+        torch.cuda.synchronize(device)
 
 
 def _normalize_prefix_timestep_mode(mode: str) -> str:
@@ -159,6 +173,7 @@ def _patched_dit_forward(
     timestep: Optional[torch.LongTensor] = None,
     encoder_attention_mask: Optional[torch.Tensor] = None,
     return_all_hidden_states: bool = False,
+    encoder_kv_cache: Optional[dict[int, tuple[torch.Tensor, torch.Tensor]]] = None,
 ):
     temb = self.timestep_encoder(timestep)
     hidden_states = hidden_states.contiguous()
@@ -181,6 +196,8 @@ def _patched_dit_forward(
                 encoder_hidden_states=encoder_hidden_states,
                 encoder_attention_mask=None,
                 temb=temb,
+                encoder_kv_cache=encoder_kv_cache,
+                encoder_kv_cache_key=idx,
             )
         all_hidden_states.append(hidden_states)
 
@@ -199,6 +216,7 @@ def _patched_alternate_vl_dit_forward(
     return_all_hidden_states: bool = False,
     image_mask: Optional[torch.Tensor] = None,
     backbone_attention_mask: Optional[torch.Tensor] = None,
+    encoder_kv_cache: Optional[dict[int, tuple[torch.Tensor, torch.Tensor]]] = None,
 ):
     assert image_mask is not None, "Image mask is required"
     temb = self.timestep_encoder(timestep)
@@ -230,6 +248,8 @@ def _patched_alternate_vl_dit_forward(
                 encoder_hidden_states=encoder_hidden_states,
                 encoder_attention_mask=curr_encoder_attention_mask,
                 temb=temb,
+                encoder_kv_cache=encoder_kv_cache,
+                encoder_kv_cache_key=idx,
             )
         all_hidden_states.append(hidden_states)
 
@@ -253,6 +273,8 @@ def _prefix_rtc_get_action_with_features(
     backbone_output: BatchFeature,
     action_input: BatchFeature,
     options: dict[str, Any] | None = None,
+    timing: dict[str, float] | None = None,
+    timing_sync_cuda: bool = False,
 ) -> BatchFeature:
     """Flow-matching decode with optional Psi0-style prefix RTC."""
     vl_embeds = backbone_features
@@ -266,6 +288,18 @@ def _prefix_rtc_get_action_with_features(
         device=device,
     )
     dt = 1.0 / self.num_inference_timesteps
+    use_dit_kv_cache = (
+        bool(options.get("dit_cross_attn_kv_cache"))
+        if options is not None and "dit_cross_attn_kv_cache" in options
+        else _env_flag("GR00T_DIT_CROSS_ATTN_KV_CACHE", False)
+    )
+    dit_encoder_kv_cache: dict[int, tuple[torch.Tensor, torch.Tensor]] | None = (
+        {} if use_dit_kv_cache else None
+    )
+    if timing is not None:
+        timing["dit_kv_cache_enabled"] = float(use_dit_kv_cache)
+        _sync_for_timing(device, timing_sync_cuda)
+        sampler_start = time.perf_counter()
 
     rtc_prefix = None
     rtc_overlap_steps = 0
@@ -296,6 +330,9 @@ def _prefix_rtc_get_action_with_features(
             size=(batch_size,), fill_value=t_discretized, device=device, dtype=torch.long
         )
 
+        if timing is not None:
+            _sync_for_timing(device, timing_sync_cuda)
+            start = time.perf_counter()
         if rtc_prefix is not None:
             # Action tokens: prefix uses the selected endpoint convention;
             # suffix uses the current GR00T denoising timestep.
@@ -312,9 +349,17 @@ def _prefix_rtc_get_action_with_features(
             pos_ids = torch.arange(action_features.shape[1], dtype=torch.long, device=device)
             pos_embs = self.position_embedding(pos_ids).unsqueeze(0)
             action_features = action_features + pos_embs
+        if timing is not None:
+            _sync_for_timing(device, timing_sync_cuda)
+            timing["action_encoder_ms"] = timing.get("action_encoder_ms", 0.0) + (
+                time.perf_counter() - start
+            ) * 1000.0
 
         sa_embs = torch.cat((state_features, action_features), dim=1)
 
+        if timing is not None:
+            _sync_for_timing(device, timing_sync_cuda)
+            start = time.perf_counter()
         if self.config.use_alternate_vl_dit:
             model_output = self.model(
                 hidden_states=sa_embs,
@@ -322,20 +367,38 @@ def _prefix_rtc_get_action_with_features(
                 timestep=t_sa,
                 image_mask=backbone_output.image_mask,
                 backbone_attention_mask=backbone_output.backbone_attention_mask,
+                encoder_kv_cache=dit_encoder_kv_cache,
             )
         else:
             model_output = self.model(
                 hidden_states=sa_embs,
                 encoder_hidden_states=vl_embeds,
                 timestep=t_sa,
+                encoder_kv_cache=dit_encoder_kv_cache,
             )
+        if timing is not None:
+            _sync_for_timing(device, timing_sync_cuda)
+            timing["dit_ms"] = timing.get("dit_ms", 0.0) + (
+                time.perf_counter() - start
+            ) * 1000.0
+            start = time.perf_counter()
 
         pred = self.action_decoder(model_output, embodiment_id)
+        if timing is not None:
+            _sync_for_timing(device, timing_sync_cuda)
+            timing["action_decoder_ms"] = timing.get("action_decoder_ms", 0.0) + (
+                time.perf_counter() - start
+            ) * 1000.0
         pred_velocity = pred[:, -action_horizon :]
         actions = actions + dt * pred_velocity
 
         if rtc_prefix is not None:
             actions[:, :rtc_overlap_steps, :] = rtc_prefix
+
+    if timing is not None:
+        _sync_for_timing(device, timing_sync_cuda)
+        timing["sampler_ms"] = (time.perf_counter() - sampler_start) * 1000.0
+        timing["dit_kv_cache_entries"] = float(len(dit_encoder_kv_cache or {}))
 
     return BatchFeature(
         data={

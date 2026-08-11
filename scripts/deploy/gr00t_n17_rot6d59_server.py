@@ -174,6 +174,7 @@ class Config:
     # inference only, not HTTP serialization or SIMPLE-side work.
     log_inference_timing: bool = True
     inference_timing_window: int = 20
+    log_timing_breakdown: bool = os.environ.get("GR00T_LOG_TIMING_BREAKDOWN", "0") == "1"
 
 
 class Server:
@@ -198,6 +199,8 @@ class Server:
 
     def __init__(self, cfg: Config):
         self.cfg = cfg
+        if self.cfg.log_timing_breakdown:
+            os.environ.setdefault("GR00T_RETURN_TIMING", "1")
         self._configure_offline_backbone()
         self._allow_local_cosmos_backbone()
         self._import_modality_config()
@@ -419,6 +422,35 @@ class Server:
             f"mode={trt_mode}"
         )
 
+    def _record_timing_breakdown(self, info: dict[str, Any]) -> None:
+        if not self.cfg.log_timing_breakdown:
+            return
+        timing = info.get("timing") if isinstance(info, dict) else None
+        if not isinstance(timing, dict):
+            return
+        model_internal = timing.get("model_internal")
+        if not isinstance(model_internal, dict):
+            model_internal = {}
+
+        def fmt(value: Any) -> str:
+            return "nan" if value is None else f"{float(value):.1f}"
+
+        print(
+            "[gr00t-rot6d59-server] timing breakdown ms: "
+            f"processor={fmt(timing.get('processor_ms'))}, "
+            f"collate={fmt(timing.get('collate_ms'))}, "
+            f"backbone={fmt(model_internal.get('backbone_ms'))}, "
+            f"vl_sa={fmt(model_internal.get('action_head.vl_self_attention_ms'))}, "
+            f"state={fmt(model_internal.get('action_head.state_encoder_ms'))}, "
+            f"act_enc={fmt(model_internal.get('action_head.action_encoder_ms'))}, "
+            f"dit={fmt(model_internal.get('action_head.dit_ms'))}, "
+            f"act_dec={fmt(model_internal.get('action_head.action_decoder_ms'))}, "
+            f"sampler={fmt(model_internal.get('action_head.sampler_ms'))}, "
+            f"post_decode={fmt(timing.get('decode_ms'))}, "
+            f"kv_entries={fmt(model_internal.get('action_head.dit_kv_cache_entries'))}, "
+            f"trt_launches={fmt(model_internal.get('action_head.trt_step_engine_launches'))}"
+        )
+
     def act(self, payload: dict[str, Any]) -> JSONResponse:
         try:
             request = _numpy_decode(payload)
@@ -466,6 +498,7 @@ class Server:
             action, info = self.policy.get_action(observation, options)
             infer_ms = (time.perf_counter() - infer_start) * 1000.0
             self._record_inference_timing(infer_ms)
+            self._record_timing_breakdown(info)
 
             if self.enable_rtc:
                 normalized_pred = info.get("normalized_action_pred")
