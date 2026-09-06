@@ -1,0 +1,48 @@
+{
+  "date": "2026-09-06",
+  "author": "ql3c20 <2991357552@qq.com>",
+  "repositories": {
+    "SIMPLE_eval_env": {
+      "url": "https://github.com/ql3c20/SIMPLE_eval_env.git",
+      "branch": "icra2027",
+      "commit": "bd7e73bc04e6ff6c3c70bb31e15bcf9f199b361b"
+    },
+    "Isaac-GR00T-rtc": {
+      "url": "https://github.com/ql3c20/Isaac-GR00T-rtc.git",
+      "branch": "icra2027",
+      "commit": "0be9a70faa0b6289d9e8b0f0b6b8963d659a9707"
+    },
+    "HumanoidVLA_MJ": {
+      "url": "https://github.com/ql3c20/HumanoidVLA_MJ.git",
+      "branch": "icra2027",
+      "commit": "5a2cd171faa334aed697154bfcaf074e1fa2ef07"
+    }
+  },
+  "excluded": [
+    "recordings",
+    "datasets",
+    "videos",
+    "weights",
+    "TensorRT engines",
+    "Python environments",
+    "HSSD scenes"
+  ],
+  "assets": {
+    "repository": "HumanoidVLA_MJ",
+    "file_count": 241,
+    "bytes": 177230944
+  },
+  "validation": {
+    "groot_precommit": "passed",
+    "groot_tests": "59 passed",
+    "simple_focused_tests": "31 passed; external reset subsequently passed with extracted assets (32 total)",
+    "simple_known_failures": [
+      "test_task1_requires_ten_consecutive_lift_steps",
+      "test_task1_hold_resets_below_threshold",
+      "test_continuous_thumb_finger_grasp_then_three_cm_motion_succeeds",
+      "test_continuous_left_grasp_then_three_cm_lift_succeeds"
+    ],
+    "mujoco_load": "9 task MJCF + 2 robot models passed",
+    "closed_loop_evaluation": "not run"
+  }
+}

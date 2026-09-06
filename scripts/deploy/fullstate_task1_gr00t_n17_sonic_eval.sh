@@ -45,6 +45,30 @@ case "${1:-}" in
     export MUJOCO_GL=egl
     export PYOPENGL_PLATFORM=egl
     export SONIC_DECODER_ONNX="${SONIC_DECODER_ONNX:-/pfs/pfs-ilWc5D/yzh/SONIC_my/gear_sonic_deploy/policy/release/model_decoder.onnx}"
+    # uv may place the ORT CUDA provider below .venv/lib64 and import the
+    # Python package from .venv/lib.  Make the provider and pip NVIDIA runtime
+    # libraries visible before the evaluator starts.  This is a no-op for the
+    # existing MuJoCo simulation mode apart from fixing CUDA provider loading.
+    ORT_CUDA_PROVIDER=""
+    for ORT_CUDA_CANDIDATE in \
+      "$SIMPLE_ROOT"/.venv/lib*/python*/site-packages/onnxruntime/capi/libonnxruntime_providers_cuda.so; do
+      if [[ -f "$ORT_CUDA_CANDIDATE" ]]; then
+        ORT_CUDA_PROVIDER="$ORT_CUDA_CANDIDATE"
+        break
+      fi
+    done
+    if [[ -z "$ORT_CUDA_PROVIDER" ]]; then
+      echo "Missing libonnxruntime_providers_cuda.so below $SIMPLE_ROOT/.venv" >&2
+      exit 1
+    fi
+    ORT_NVIDIA_LIBS=""
+    while IFS= read -r NVIDIA_LIB; do
+      ORT_NVIDIA_LIBS="${ORT_NVIDIA_LIBS}:${NVIDIA_LIB}"
+    done < <(
+      find "$SIMPLE_ROOT"/.venv/lib*/python*/site-packages/nvidia \
+        -mindepth 2 -maxdepth 2 -type d -name lib -print 2>/dev/null
+    )
+    export LD_LIBRARY_PATH="$(dirname "$ORT_CUDA_PROVIDER")${ORT_NVIDIA_LIBS}${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
     # This task was collected from a deterministic recorded initial pose.
     # By default, skip SIMPLE's generic stabilization phase so the first
     # policy observation stays close to the training distribution.  Override
@@ -66,7 +90,7 @@ case "${1:-}" in
       --eval-dir="$EVAL_DIR" \
       --host="${GR00T_HOST:-localhost}" \
       --port="$GR00T_PORT" \
-      --sim-mode=mujoco \
+      --sim-mode="${SIM_MODE:-mujoco}" \
       --headless \
       "$VIDEO_FLAG" \
       --data-format=fixed \

@@ -52,6 +52,8 @@ SAVE_VIDEO="${SAVE_VIDEO:-1}"
 EPISODE_START="${EPISODE_START:-0}"
 MAX_EPISODE_STEPS="${MAX_EPISODE_STEPS:-800}"
 SIM_MODE="${SIM_MODE:-mujoco_isaac}"
+SIMPLE_MUJOCO_GUI="${SIMPLE_MUJOCO_GUI:-0}"
+export SIMPLE_TRACKER_GHOST="${SIMPLE_TRACKER_GHOST:-0}"
 DATA_FORMAT="${DATA_FORMAT:-lerobot}"
 DATA_DIR="${DATA_DIR:-data/evals/simple-eval/${TASK}/${DR}}"
 
@@ -88,18 +90,19 @@ export TEXTOP_TASK="${TEXTOP_TASK:-Tracking-Flat-G1-ProjGravAnchorEEObs-Transfor
 # Set TEXTOP_POLICY_ROOT_EE=0 explicitly to recover Kimodo-FK root/EE references.
 export TEXTOP_POLICY_ROOT_EE="${TEXTOP_POLICY_ROOT_EE:-1}"
 
+TEXTOP_CKPT_ROOT="${TEXTOP_CKPT_ROOT:-/home/ubuntu/yzh/ckpt}"
 TEXTOP_ONESTEP_TASK="${TEXTOP_ONESTEP_TASK:-Tracking-Flat-G1-ProjGravAnchorEEObsOneStep-TransformerVAE-NMMLP-v0}"
 TEXTOP_ONESTEP_RUN_DIR="${TEXTOP_ONESTEP_RUN_DIR:-$POLICYHAND_ROT6D59_RUN_DIR}"
-TEXTOP_ONESTEP_TRACKER_RUN="${TEXTOP_ONESTEP_TRACKER_RUN:-${TEXTOP_ROOT}/textop/2026-06-11_11-39-47_rgz_loco_manip_obj_transf_vae_1step_ddp_4gpu_gear_sonic_ads_naug}"
+TEXTOP_ONESTEP_TRACKER_RUN="${TEXTOP_ONESTEP_TRACKER_RUN:-${TEXTOP_CKPT_ROOT}/textop/2026-06-11_11-39-47_rgz_loco_manip_obj_transf_vae_1step_ddp_4gpu_gear_sonic_ads_naug}"
 TEXTOP_ONESTEP_POLICY_ONNX="${TEXTOP_ONESTEP_POLICY_ONNX:-${TEXTOP_ONESTEP_TRACKER_RUN}/latest.onnx}"
-TEXTOP_ONESTEP_VAE_RUN="${TEXTOP_ONESTEP_VAE_RUN:-${TEXTOP_ROOT}/textop/2026-05-30_04-21-30_npz_rgz_filtered_ddp_save}"
+TEXTOP_ONESTEP_VAE_RUN="${TEXTOP_ONESTEP_VAE_RUN:-${TEXTOP_CKPT_ROOT}/vae/2026-05-30_04-21-30_npz_rgz_filtered_ddp_save}"
 TEXTOP_ONESTEP_VAE_ONNX="${TEXTOP_ONESTEP_VAE_ONNX:-${TEXTOP_ONESTEP_VAE_RUN}/artifacts/motion_transformer_vae_encoder_z_c.onnx}"
 TEXTOP_ONESTEP_VAE_STATS="${TEXTOP_ONESTEP_VAE_STATS:-${TEXTOP_ONESTEP_VAE_RUN}/artifacts/stats.npz}"
 TEXTOP_ONESTEP_VAE_WINDOW_STEPS="${TEXTOP_ONESTEP_VAE_WINDOW_STEPS:-10}"
 
-TEXTOP_RGZ_TRACKER_RUN="${TEXTOP_RGZ_TRACKER_RUN:-${TEXTOP_ROOT}/textop/2026-06-11_11-39-47_rgz_loco_manip_obj_transf_vae_1step_ddp_4gpu_gear_sonic_ads_naug}"
+TEXTOP_RGZ_TRACKER_RUN="${TEXTOP_RGZ_TRACKER_RUN:-${TEXTOP_CKPT_ROOT}/textop/2026-06-11_11-39-47_rgz_loco_manip_obj_transf_vae_1step_ddp_4gpu_gear_sonic_ads_naug}"
 TEXTOP_RGZ_POLICY_ONNX="${TEXTOP_RGZ_POLICY_ONNX:-${TEXTOP_RGZ_TRACKER_RUN}/latest.onnx}"
-TEXTOP_RGZ_VAE_RUN="${TEXTOP_RGZ_VAE_RUN:-${TEXTOP_ROOT}/textop/2026-05-30_04-21-30_npz_rgz_filtered_ddp_save}"
+TEXTOP_RGZ_VAE_RUN="${TEXTOP_RGZ_VAE_RUN:-${TEXTOP_CKPT_ROOT}/vae/2026-05-30_04-21-30_npz_rgz_filtered_ddp_save}"
 TEXTOP_RGZ_VAE_ONNX="${TEXTOP_RGZ_VAE_ONNX:-${TEXTOP_RGZ_VAE_RUN}/artifacts/motion_transformer_vae_encoder_z_c.onnx}"
 TEXTOP_RGZ_VAE_STATS="${TEXTOP_RGZ_VAE_STATS:-${TEXTOP_RGZ_VAE_RUN}/artifacts/stats.npz}"
 TEXTOP_RGZ_VAE_WINDOW_STEPS="${TEXTOP_RGZ_VAE_WINDOW_STEPS:-10}"
@@ -204,9 +207,77 @@ eval_simple() {
   source .venv/bin/activate
 
   export CUDA_VISIBLE_DEVICES="$EVAL_GPU"
+  # uv may place the large ORT CUDA provider under .venv/lib64 while Python
+  # imports the package from .venv/lib.  Add the real provider directory and
+  # pip-installed NVIDIA runtime libraries before the eval Python process is
+  # created; changing LD_LIBRARY_PATH after Python starts is too late for
+  # dlopen("libonnxruntime_providers_cuda.so").
+  ort_cuda_provider="$(
+    find "$SIMPLE_ROOT/.venv" -type f \
+      -path '*/site-packages/onnxruntime/capi/libonnxruntime_providers_cuda.so' \
+      -print -quit
+  )"
+  if [[ -z "$ort_cuda_provider" ]]; then
+    echo "Missing libonnxruntime_providers_cuda.so below $SIMPLE_ROOT/.venv" >&2
+    exit 1
+  fi
+  ort_cuda_dir="$(dirname "$ort_cuda_provider")"
+  ort_nvidia_libs=""
+  shopt -s nullglob
+  nvidia_roots=("$SIMPLE_ROOT"/.venv/lib*/python*/site-packages/nvidia)
+  shopt -u nullglob
+  while IFS= read -r nvidia_lib; do
+    ort_nvidia_libs="${ort_nvidia_libs}:${nvidia_lib}"
+  done < <(
+    for nvidia_root in "${nvidia_roots[@]}"; do
+      find "$nvidia_root" -mindepth 2 -maxdepth 2 -type d -name lib -print
+    done
+  )
+  export LD_LIBRARY_PATH="${ort_cuda_dir}${ort_nvidia_libs}${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+
+  EVAL_GPU="$EVAL_GPU" python - <<'PY'
+import os
+from pathlib import Path
+
+import onnxruntime as ort
+
+models = {
+    "VAE": Path(os.environ["TEXTOP_VAE_ONNX"]),
+    "policy": Path(os.environ["TEXTOP_POLICY_ONNX"]),
+}
+for label, path in models.items():
+    if not path.is_file():
+        raise FileNotFoundError(f"TextOp {label} ONNX is missing: {path}")
+    session = ort.InferenceSession(
+        str(path), providers=["CUDAExecutionProvider", "CPUExecutionProvider"]
+    )
+    active = session.get_providers()
+    if not active or active[0] != "CUDAExecutionProvider":
+        raise RuntimeError(
+            f"TextOp {label} CUDA preflight failed with EVAL_GPU="
+            f"{os.environ['EVAL_GPU']}; active providers={active}"
+        )
+    print(
+        f"[preflight] TextOp {label} providers={active} "
+        f"EVAL_GPU={os.environ['EVAL_GPU']}",
+        flush=True,
+    )
+    del session
+PY
   export OMNI_KIT_ACCEPT_EULA=Y
-  export MUJOCO_GL=egl
-  export PYOPENGL_PLATFORM=egl
+  headless_flag="--headless"
+  if [[ "$SIMPLE_MUJOCO_GUI" == "1" ]]; then
+    headless_flag="--no-headless"
+    unset MUJOCO_GL PYOPENGL_PLATFORM
+    echo "[eval] MuJoCo GUI enabled; tracker_ghost=${SIMPLE_TRACKER_GHOST}"
+  else
+    export MUJOCO_GL=egl
+    export PYOPENGL_PLATFORM=egl
+  fi
+  if [[ "$SIMPLE_TRACKER_GHOST" == "1" && "$SIMPLE_MUJOCO_GUI" != "1" ]]; then
+    echo "SIMPLE_TRACKER_GHOST=1 requires SIMPLE_MUJOCO_GUI=1" >&2
+    exit 1
+  fi
   export NO_PROXY="${NO_PROXY:-localhost,127.0.0.1,0.0.0.0,::1}"
   export no_proxy="${no_proxy:-localhost,127.0.0.1,0.0.0.0,::1}"
 
@@ -215,7 +286,11 @@ eval_simple() {
     VIDEO_FLAG="--no-save-video"
   fi
 
-  python "src/simple/cli/${ENTRY}" \
+  eval_prefix=()
+  if [[ -n "${EVAL_CPUSET:-}" ]]; then
+    eval_prefix=(taskset -c "$EVAL_CPUSET")
+  fi
+  "${eval_prefix[@]}" python "src/simple/cli/${ENTRY}" \
     "simple/${TASK}" \
     "$AGENT" \
     "$DR" \
@@ -223,7 +298,7 @@ eval_simple() {
     --host="$HOST" \
     --port="$PORT" \
     --sim-mode="$SIM_MODE" \
-    --headless \
+    "$headless_flag" \
     --data-format="$DATA_FORMAT" \
     --data-dir="$DATA_DIR" \
     --num-episodes="$NUM_EPISODES" \

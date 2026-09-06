@@ -1,4 +1,4 @@
 [submodule "third_party/SIMPLE"]
 	path = third_party/SIMPLE
 	url = https://github.com/ql3c20/SIMPLE_eval_env.git
-	branch = simple_eval
+	branch = icra2027

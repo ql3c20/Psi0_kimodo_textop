@@ -158,6 +158,9 @@ class Config:
     # Number of chunk frames the downstream SIMPLE executor consumes before it
     # re-requests (must match POLICY_EXECUTION_HORIZON on the client side).
     action_exec_horizon: int = 34
+    # Fail fast if a checkpoint does not expose the 40-frame action contract
+    # expected by the downstream Kimodo/TextOp chain.
+    expected_action_horizon: int = 40
     # Soft-freeze knobs for official --enable-rtc (ignored under --prefix-rtc).
     rtc_frozen_steps: int = 2
     rtc_ramp_rate: float = 2.0
@@ -215,6 +218,11 @@ class Server:
         horizon = len(self.policy.modality_configs["action"].delta_indices)
         print(f"[gr00t-rot6d59-server] loaded {cfg.model_path}")
         print(f"[gr00t-rot6d59-server] GR00T prediction horizon={horizon}")
+        if horizon != int(cfg.expected_action_horizon):
+            raise ValueError(
+                "GR00T checkpoint action horizon does not match the deployment contract: "
+                f"checkpoint={horizon}, expected={cfg.expected_action_horizon}"
+            )
 
         # --- RTC state ------------------------------------------------------
         # --prefix-rtc implies RTC continuity (hard-rewrite path).

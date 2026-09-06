@@ -1,0 +1,111 @@
+
+
+# --------------------------- Terminal 1: GR00T ---------------------------
+```bash
+cd /home/ubuntu/yzh/Psi0_kimodo_textop
+
+TASK_RECORDINGS_DIR=/home/ubuntu/yzh/mujoco_recordings/20260805_task2_male_lqb \
+SERVE_GPU=0 \
+GR00T_PORT=22085 \
+GR00T_PREFIX_RTC=1 \
+GR00T_USE_RTC=1 \
+GR00T_PREFIX_RTC_TIMESTEP_MODE=groot_clean \
+GR00T_ACTION_HORIZON=40 \
+GR00T_EXECUTION_HORIZON=30 \
+GR00T_MODEL_PATH=/home/ubuntu/yzh/ckpt/gr00tn17/task2_isaac_overlap12_gt-ki-tp_lqb-male/checkpoint-60000 \
+GR00T_BACKBONE_PATH=/home/ubuntu/yzh/Isaac-GR00T-rtc/huggingface/Cosmos-Reason2-2B \
+bash scripts/deploy/fullstate_task2_gr00t_rot6d59_kimodo_textop_eval.sh serve
+```
+
+# Readiness:
+#   curl -fsS http://127.0.0.1:22085/health
+
+
+# ---------------------- Terminal 2: Kimodo PyTorch -----------------------
+```bash
+cd /home/ubuntu/yzh/Psi0_kimodo_textop
+
+TASK_RECORDINGS_DIR=/home/ubuntu/yzh/mujoco_recordings/20260805_task2_male_lqb \
+KIMODO_GPU=0 \
+KIMODO_SERVER_PORT=22185 \
+KIMODO_USE_TRT=0 \
+KIMODO_TEXT_ENCODER_MODE=original \
+KIMODO_ANCHOR_MODE=policy_only \
+KIMODO_DIFFUSION_STEPS=20 \
+KIMODO_KEYFRAME_STEP=10 \
+KIMODO_DISTILL_CONFIG=/home/ubuntu/yzh/ckpt/kimodo/g1_distill_16to8_100to20_dagger_teacher_gt03_100k_bs4x4_k3_cosine_selfacc50_rootacc10_headingacc10_gtbranch/resolved_config.yaml \
+KIMODO_DISTILL_CKPT=/home/ubuntu/yzh/ckpt/kimodo/g1_distill_16to8_100to20_dagger_teacher_gt03_100k_bs4x4_k3_cosine_selfacc50_rootacc10_headingacc10_gtbranch/ema_final.pt \
+bash scripts/deploy/fullstate_task2_gr00t_rot6d59_kimodo_textop_eval.sh kimodo-serve
+```
+
+# Readiness (must show pytorch / original / policy_only / keyframe_step=10):
+#   curl -fsS http://127.0.0.1:22185/config
+
+
+# ------------------------- Terminal 3: Isaac Ego -------------------------
+```bash
+cd /home/ubuntu/yzh/Psi0_kimodo_textop
+
+TASK_RECORDINGS_DIR=/home/ubuntu/yzh/mujoco_recordings/20260805_task2_male_lqb \
+TASK_HSSD_USD=/home/ubuntu/yzh/Psi0_kimodo_textop/third_party/SIMPLE/data/scenes/hssd/102344250/102344250_local.usd \
+ISAAC_HEADLESS=1 \
+ISAAC_UDP_PORT=23331 \
+ISAAC_EGO_FRAME_PATH=/dev/shm/simple_task2_isaac_ego.frame \
+ISAAC_LIGHT_RIG=scripted \
+ISAAC_RANDOMIZE_LIGHTING=0 \
+ISAAC_TRAINING_LIGHTING_MANIFEST=/home/ubuntu/yzh/HumanoidVLA_MJ_backup/HumanoidVLA_MJ/output/task2_lqb_isaac_lerobot/scene3/task2_lqb_all_male/meta/lighting.jsonl \
+TASK_EGO_EYE="0.10 0.06 0.70" \
+TASK_EGO_FORWARD="0.71735609 0.0 -0.69670671" \
+TASK_EGO_UP="0.69670649 0.00079633 0.71735586" \
+TASK_TRANSLATE="0.0 0.0 0.0" \
+TASK2_TRASH_TRANSLATE="-0.01 0.025 0.0" \
+ISAAC_LIVE_EGO_WIDTH=1280 \
+ISAAC_LIVE_EGO_HEIGHT=720 \
+ISAAC_ROBOT_COLORS_SRGB_TO_LINEAR=1 \
+ISAAC_SMOOTH_TASK_TABLE_CYLINDER=1 \
+ISAAC_MAIN_WIDTH=1280 \
+ISAAC_MAIN_HEIGHT=720 \
+ISAAC_OUTPUT_DIR=/home/ubuntu/yzh/HumanoidVLA_MJ_backup/HumanoidVLA_MJ/output/task2_isaac_hssd_scene3 \
+bash scripts/deploy/fullstate_task2_gr00t_rot6d59_kimodo_textop_eval.sh isaac
+```
+
+# 如需世界相机和右上角 Ego 小窗，将 ISAAC_HEADLESS 改成 0。
+
+
+# ----------------------- Terminal 4: TextOp eval -------------------------
+```bash
+cd /home/ubuntu/yzh/Psi0_kimodo_textop
+
+RUN_TAG=lqb_run006_ckpt60k-male-trashshift-1250-eps100
+KIMODO_RUN=/home/ubuntu/yzh/ckpt/kimodo/g1_distill_16to8_100to20_dagger_teacher_gt03_100k_bs4x4_k3_cosine_selfacc50_rootacc10_headingacc10_gtbranch
+
+TASK_RECORDINGS_DIR=/home/ubuntu/yzh/mujoco_recordings/20260805_task2_male_lqb \
+GR00T_MODEL_PATH=/home/ubuntu/yzh/ckpt/gr00tn17/task2_isaac_overlap12_gt-ki-tp_lqb-male/checkpoint-60000 \
+TASK2_INSTRUCTION="Walk forward, pick up the bottle, turn right, open the trash can with the pedal, and drop it in." \
+POLICY_ACTION_HORIZON=40 \
+POLICY_EXECUTION_HORIZON=30 \
+TASK2_RECORDING_INDEX= \
+TASK2_RECORDING_SEED=6 \
+TASK2_TRASH_TRANSLATE="-0.01 0.025 0.0" \
+KIMODO_POLICY_ONLY_INITIAL_QPOS=1 \
+KIMODO_RTC_PREFIX_FRAMES=0 \
+KIMODO_USE_TRT=0 \
+KIMODO_DISTILL_CONFIG="$KIMODO_RUN/resolved_config.yaml" \
+KIMODO_DISTILL_CKPT="$KIMODO_RUN/ema_final.pt" \
+TASK_EGO_EYE="0.10 0.06 0.70" \
+ISAAC_UDP_PORT=23331 \
+ISAAC_EGO_FRAME_PATH=/dev/shm/simple_task2_isaac_ego.frame \
+ISAAC_LIVE_EGO_WIDTH=1280 \
+ISAAC_LIVE_EGO_HEIGHT=720 \
+EVAL_GPU=0 \
+NUM_EPISODES=100 \
+EPISODE_START=0 \
+MAX_EPISODE_STEPS=500 \
+SAVE_VIDEO=1 \
+FULLSTATE_GR00T_EVAL_DIR="/home/ubuntu/yzh/Psi0_kimodo_textop/third_party/SIMPLE/data/evals_task2_lqb_isaac_${RUN_TAG}" \
+FULLSTATE_GR00T_KIMODO_WORK_DIR="/home/ubuntu/yzh/Psi0_kimodo_textop/outputs/kimodo_task2_lqb_isaac_${RUN_TAG}" \
+bash scripts/deploy/fullstate_task2_gr00t_rot6d59_kimodo_textop_eval.sh eval
+```
+
+# 固定第 0 条 recording：将 TASK2_RECORDING_INDEX= 改成 TASK2_RECORDING_INDEX=0。
+# 断点续跑：保持 RUN_TAG 不变，并在终端 4 命令前增加 RESUME=1。

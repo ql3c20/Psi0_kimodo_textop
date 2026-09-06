@@ -1,0 +1,266 @@
+[
+  {
+    "repo": "/home/ubuntu/yzh/Psi0_kimodo_textop",
+    "ref": "origin/simple_eval",
+    "file": "scripts/deploy/eval_lqb_simple_task3_sonic.sh",
+    "status": "REMOTE_ABSENT",
+    "remote_blob": null,
+    "local_blob": "64873226223371e73a04bd1601d2ecdf14c86d84"
+  },
+  {
+    "repo": "/home/ubuntu/yzh/Psi0_kimodo_textop",
+    "ref": "origin/simple_eval",
+    "file": "scripts/deploy/fullstate_task1_gr00t_n17_sonic_eval.sh",
+    "status": "DIFFERENT",
+    "remote_blob": "8cc8b399c3a2fb1a191186f36bd36e3f804faea6",
+    "local_blob": "c585a0866a6e96457cd7c4c3b33ff493ae12f0c1"
+  },
+  {
+    "repo": "/home/ubuntu/yzh/Psi0_kimodo_textop",
+    "ref": "origin/simple_eval",
+    "file": "scripts/deploy/fullstate_task3_gr00t_rot6d59_kimodo_textop_eval.sh",
+    "status": "DIFFERENT",
+    "remote_blob": "aa0ca56e1bd77e0b6de4184f46ac050eec213cc0",
+    "local_blob": "65808be244021f3ac6336a24cf4e11fe956ec375"
+  },
+  {
+    "repo": "/home/ubuntu/yzh/Psi0_kimodo_textop",
+    "ref": "origin/simple_eval",
+    "file": "scripts/deploy/fullstate_task1_gr00t_rot6d59_kimodo_textop_eval.sh",
+    "status": "DIFFERENT",
+    "remote_blob": "b271886d6c706406c9f3b7d600fddee00871ecf8",
+    "local_blob": "e5385012243e6953d88b4352f3429991ef592f42"
+  },
+  {
+    "repo": "/home/ubuntu/yzh/Psi0_kimodo_textop",
+    "ref": "origin/simple_eval",
+    "file": "scripts/deploy/gr00t_n17_sonic_server.py",
+    "status": "DIFFERENT",
+    "remote_blob": "f26d15b237d8ee1f9495cb9d484cc292988cd2f0",
+    "local_blob": "cf0f101138ec48d8d2ef5f2efc6b4b13cd5da28a"
+  },
+  {
+    "repo": "/home/ubuntu/yzh/Psi0_kimodo_textop",
+    "ref": "origin/simple_eval",
+    "file": "scripts/deploy/gr00t_n17_prefix_rtc.py",
+    "status": "SAME",
+    "remote_blob": "7283cb929caf0b1850b9ec7a52a2ef2b7a4744df",
+    "local_blob": "7283cb929caf0b1850b9ec7a52a2ef2b7a4744df"
+  },
+  {
+    "repo": "/home/ubuntu/yzh/Psi0_kimodo_textop",
+    "ref": "origin/simple_eval",
+    "file": "scripts/deploy/task3_lqb_sonic_textop_full_pipeline.md",
+    "status": "REMOTE_ABSENT",
+    "remote_blob": null,
+    "local_blob": "9b22899e4548106d01351471dd62a77731282c1b"
+  },
+  {
+    "repo": "/home/ubuntu/yzh/Psi0_kimodo_textop",
+    "ref": "origin/simple_eval",
+    "file": ".gitmodules",
+    "status": "SAME",
+    "remote_blob": "a77adff4645ed46643c92ae5b4866cb58f807840",
+    "local_blob": "a77adff4645ed46643c92ae5b4866cb58f807840"
+  },
+  {
+    "repo": "/home/ubuntu/yzh/Psi0_kimodo_textop/third_party/SIMPLE",
+    "ref": "origin/simple_eval",
+    "file": "scripts/validate_fullstate_recordings.py",
+    "status": "REMOTE_ABSENT",
+    "remote_blob": null,
+    "local_blob": "955515d0b364074229fcf60cfa1e9dafb8371ab6"
+  },
+  {
+    "repo": "/home/ubuntu/yzh/Psi0_kimodo_textop/third_party/SIMPLE",
+    "ref": "origin/simple_eval",
+    "file": "src/simple/tasks/g1_fullstate_20260804_task3.py",
+    "status": "REMOTE_ABSENT",
+    "remote_blob": null,
+    "local_blob": "a5b4bad328791a44ef3a7dd3881771668c871e11"
+  },
+  {
+    "repo": "/home/ubuntu/yzh/Psi0_kimodo_textop/third_party/SIMPLE",
+    "ref": "origin/simple_eval",
+    "file": "src/simple/tasks/g1_fullstate_recordings.py",
+    "status": "REMOTE_ABSENT",
+    "remote_blob": null,
+    "local_blob": "0bef883aa76e32690022d91d0db70d8617d2ad0e"
+  },
+  {
+    "repo": "/home/ubuntu/yzh/Psi0_kimodo_textop/third_party/SIMPLE",
+    "ref": "origin/simple_eval",
+    "file": "src/simple/tasks/g1_fullstate_20260615_task1.py",
+    "status": "DIFFERENT",
+    "remote_blob": "24562c226d796b84538e2555268229f4a117d581",
+    "local_blob": "2f65075fa67e57f3935cecd21aeab8ffaea3ff7e"
+  },
+  {
+    "repo": "/home/ubuntu/yzh/Psi0_kimodo_textop/third_party/SIMPLE",
+    "ref": "origin/simple_eval",
+    "file": "src/simple/tasks/__init__.py",
+    "status": "DIFFERENT",
+    "remote_blob": "7e0fafa321099f9ef451e937447b7575762c0670",
+    "local_blob": "b89e67c98266a186f3248a9a1a30401345435e95"
+  },
+  {
+    "repo": "/home/ubuntu/yzh/Psi0_kimodo_textop/third_party/SIMPLE",
+    "ref": "origin/simple_eval",
+    "file": "src/simple/baselines/gr00t_n17_sonic.py",
+    "status": "DIFFERENT",
+    "remote_blob": "a1228f47ad5ac2f998dc30101ee728b5ddfe0afb",
+    "local_blob": "8cb4739752816e738de876454968b4120f21915a"
+  },
+  {
+    "repo": "/home/ubuntu/yzh/Psi0_kimodo_textop/third_party/SIMPLE",
+    "ref": "origin/simple_eval",
+    "file": "src/simple/baselines/textop_tracker_adapter.py",
+    "status": "DIFFERENT",
+    "remote_blob": "7f3e6c21d9e4ce85d3d6d119ec19da8353b5b028",
+    "local_blob": "aa59e67184ac18ecabd4df3cf8e4c4fbb7fe1204"
+  },
+  {
+    "repo": "/home/ubuntu/yzh/Psi0_kimodo_textop/third_party/SIMPLE",
+    "ref": "origin/simple_eval",
+    "file": "src/simple/cli/eval_decoupled_wbc.py",
+    "status": "DIFFERENT",
+    "remote_blob": "26a742204fb1340ce3f5d47362f7f21cf213d49a",
+    "local_blob": "18fec5aaeae78d8fcd94e705065fbca9caf6868b"
+  },
+  {
+    "repo": "/home/ubuntu/yzh/Psi0_kimodo_textop/third_party/SIMPLE",
+    "ref": "origin/simple_eval",
+    "file": "src/simple/engines/external_isaac_ego.py",
+    "status": "REMOTE_ABSENT",
+    "remote_blob": null,
+    "local_blob": "eebb841dc853930e3604b7eeb475db316a18c1b3"
+  },
+  {
+    "repo": "/home/ubuntu/yzh/Psi0_kimodo_textop/third_party/SIMPLE",
+    "ref": "origin/simple_eval",
+    "file": "src/simple/engines/mujoco.py",
+    "status": "DIFFERENT",
+    "remote_blob": "8be2bb1aa64efa65c6320dc036a9134a44bab304",
+    "local_blob": "e66025838c2b8cd13c6bdaeddb704d3f1bbe0d7b"
+  },
+  {
+    "repo": "/home/ubuntu/yzh/Psi0_kimodo_textop/third_party/SIMPLE",
+    "ref": "origin/simple_eval",
+    "file": "src/simple/envs/base_dual_env.py",
+    "status": "DIFFERENT",
+    "remote_blob": "33b150a4ef1111e20b0c6df89bf47d9eb87b2c0d",
+    "local_blob": "82b7eb3acc7bd3fbbe73c3514ce4748c8013ca99"
+  },
+  {
+    "repo": "/home/ubuntu/yzh/Psi0_kimodo_textop/third_party/SIMPLE",
+    "ref": "origin/simple_eval",
+    "file": "src/simple/envs/sonic_loco_manip.py",
+    "status": "DIFFERENT",
+    "remote_blob": "c7d9ba5c13fcc98ca77a241149cd7ef0ca30645e",
+    "local_blob": "6abdf771f715e32a62bd71d3ce3c646f251d8f46"
+  },
+  {
+    "repo": "/home/ubuntu/yzh/Psi0_kimodo_textop/third_party/SIMPLE",
+    "ref": "origin/simple_eval",
+    "file": "src/simple/envs/__init__.py",
+    "status": "DIFFERENT",
+    "remote_blob": "a4a13856dbaab5994dfbbd81e5a3b1ed9b74591a",
+    "local_blob": "57c693585562057b2a26790ddd9a69b26980d63e"
+  },
+  {
+    "repo": "/home/ubuntu/yzh/Psi0_kimodo_textop/third_party/SIMPLE",
+    "ref": "origin/simple_eval",
+    "file": "src/simple/envs/video_writer.py",
+    "status": "DIFFERENT",
+    "remote_blob": "75c667de85b97eabdc523d747787466bda31b6bf",
+    "local_blob": "ce1e2dfd219e32044dfd207a3b7dee13631b3c24"
+  },
+  {
+    "repo": "/home/ubuntu/yzh/Psi0_kimodo_textop/third_party/SIMPLE",
+    "ref": "origin/simple_eval",
+    "file": "src/simple/envs/wrappers/video_recorder.py",
+    "status": "DIFFERENT",
+    "remote_blob": "6525777c5f467b43bd0f74e6af1400cb37b36e5b",
+    "local_blob": "63033b2f9cf825918d29655f5d0f294caf693a02"
+  },
+  {
+    "repo": "/home/ubuntu/yzh/Psi0_kimodo_textop/third_party/SIMPLE",
+    "ref": "origin/simple_eval",
+    "file": "src/simple/evals/tui.py",
+    "status": "DIFFERENT",
+    "remote_blob": "e4af115bc522a1ae8aff168a61c05360b7ac66f9",
+    "local_blob": "9c4e59354d8686c94520742759ab8725ca0a1bb1"
+  },
+  {
+    "repo": "/home/ubuntu/yzh/Psi0_kimodo_textop/third_party/SIMPLE",
+    "ref": "origin/simple_eval",
+    "file": "pyproject.toml",
+    "status": "SAME",
+    "remote_blob": "89299c1aa488104a2a2ae26f334957453e84621f",
+    "local_blob": "89299c1aa488104a2a2ae26f334957453e84621f"
+  },
+  {
+    "repo": "/home/ubuntu/yzh/Isaac-GR00T-rtc",
+    "ref": "origin/rtc-rot6d59-support",
+    "file": "gr00t/policy/gr00t_policy.py",
+    "status": "DIFFERENT",
+    "remote_blob": "00d81e185e28318598f5e7b3cf11cc62e2815577",
+    "local_blob": "1679a1ba562096370f1479fae70a9136247a64b4"
+  },
+  {
+    "repo": "/home/ubuntu/yzh/Isaac-GR00T-rtc",
+    "ref": "origin/rtc-rot6d59-support",
+    "file": "gr00t/model/gr00t_n1d7/gr00t_n1d7.py",
+    "status": "DIFFERENT",
+    "remote_blob": "c4c5b80535530e9fc9dbaa11c1455e0b615aae75",
+    "local_blob": "ccdc5d0936926297c651ffcaee525549b882374f"
+  },
+  {
+    "repo": "/home/ubuntu/yzh/Isaac-GR00T-rtc",
+    "ref": "origin/rtc-rot6d59-support",
+    "file": "gr00t/deployment/modes.py",
+    "status": "DIFFERENT",
+    "remote_blob": "6ab22c28330431314274287bc6d89ce3bfee6032",
+    "local_blob": "063f4a236d6806cd44d56a71d1046c4c8b62c4b3"
+  },
+  {
+    "repo": "/home/ubuntu/yzh/Isaac-GR00T-rtc",
+    "ref": "origin/rtc-rot6d59-support",
+    "file": "gr00t/utils/video_utils.py",
+    "status": "DIFFERENT",
+    "remote_blob": "91dfd73b1d2a4568cefc54ed8da2934ed0a6379c",
+    "local_blob": "b416f5c65d779a9cb0056071b90fb5efee72054a"
+  },
+  {
+    "repo": "/home/ubuntu/yzh/Isaac-GR00T-rtc",
+    "ref": "origin/rtc-rot6d59-support",
+    "file": "pyproject.toml",
+    "status": "SAME",
+    "remote_blob": "3379af1c2b7a883a9a2eac79298492076f0628ea",
+    "local_blob": "3379af1c2b7a883a9a2eac79298492076f0628ea"
+  },
+  {
+    "repo": "/home/ubuntu/yzh/HumanoidVLA_MJ_backup/HumanoidVLA_MJ",
+    "ref": "origin/feat/vla-kimodo-replay",
+    "file": "scripts/deploy/task3_isaac_hssd_viewer.py",
+    "status": "REMOTE_ABSENT",
+    "remote_blob": null,
+    "local_blob": "2ea46f5d9f6b05ee674c3f150e890b01b96eddca"
+  },
+  {
+    "repo": "/home/ubuntu/yzh/HumanoidVLA_MJ_backup/HumanoidVLA_MJ",
+    "ref": "origin/feat/vla-kimodo-replay",
+    "file": "mujoco/model/task_assets/2real_asset/trash/step_trash_can.xml",
+    "status": "REMOTE_ABSENT",
+    "remote_blob": null,
+    "local_blob": "fa51cf62b3f348969fa38050536ec0cc5c2f3cce"
+  },
+  {
+    "repo": "/home/ubuntu/yzh/GR00T-WholeBodyControl",
+    "ref": "fork/main",
+    "file": "gear_sonic_deploy/policy/release/model_decoder.onnx",
+    "status": "REMOTE_ABSENT",
+    "remote_blob": null,
+    "local_blob": "dff50ca4ebd06f37a87571a49195e822b2d62e8e"
+  }
+]

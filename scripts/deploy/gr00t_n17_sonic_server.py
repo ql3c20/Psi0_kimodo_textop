@@ -316,7 +316,23 @@ class Server:
         app = FastAPI()
         app.post("/act")(self.act)
         app.get("/health")(lambda: {"status": "ok"})
+        app.get("/config")(self.runtime_config)
         uvicorn.run(app, host=self.cfg.host, port=self.cfg.port)
+
+    def runtime_config(self) -> dict[str, Any]:
+        timestep_mode = None
+        if self.prefix_rtc:
+            timestep_mode = str(
+                self.policy.model.action_head._prefix_rtc_timestep_mode
+            )
+        return {
+            "model_path": str(self.cfg.model_path.resolve()),
+            "prediction_horizon": int(self.action_chunk_size),
+            "execution_horizon": int(self.action_exec_horizon),
+            "overlap_steps": int(self.rtc_overlap_steps),
+            "prefix_rtc": bool(self.prefix_rtc),
+            "prefix_rtc_timestep_mode": timestep_mode,
+        }
 
 
 if __name__ == "__main__":
