@@ -29,4 +29,12 @@ else
   unset TASK3_RECORDING_INDEX
 fi
 
+if [[ "${TASK234_STRICT_ISAAC_EVAL:-0}" == "1" ]]; then
+  export FULLSTATE_GR00T_TASK="G1Fullstate20260804Task3IsaacEval-v0"
+  export FULLSTATE_GR00T_SIM_MODE="mujoco_isaac"
+  export SIMPLE_TASK_ASSETS_ROOT="${SIMPLE_TASK_ASSETS_ROOT:-/pfs/pfs-oHNwH0/mnt/pfs/humanoid/yzh/assets}"
+  export TASK3_INIT_FROM_RECORDINGS=0
+  export FULLSTATE_GR00T_EVAL_DIR="${FULLSTATE_TASK3_GR00T_EVAL_DIR:-data/evals_task3_20260804_strict_isaac_gr00t_kimodo_textop}"
+fi
+
 exec bash "$BASE_SCRIPT" "${1:-}"

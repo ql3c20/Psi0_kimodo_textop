@@ -66,7 +66,7 @@ case "${1:-}" in
       --eval-dir="$EVAL_DIR" \
       --host="${GR00T_HOST:-localhost}" \
       --port="$GR00T_PORT" \
-      --sim-mode=mujoco \
+      --sim-mode="${GR00T_SONIC_SIM_MODE:-mujoco}" \
       --headless \
       "$VIDEO_FLAG" \
       --data-format=fixed \

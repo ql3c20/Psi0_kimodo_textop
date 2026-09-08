@@ -100,7 +100,7 @@ case "${1:-}" in
     ;;
   eval)
     TASK="${FULLSTATE_GR00T_TASK:-G1Fullstate20260615Task1-v0}" \
-    SIM_MODE=mujoco \
+    SIM_MODE="${FULLSTATE_GR00T_SIM_MODE:-mujoco}" \
     DATA_FORMAT=fixed \
     DATA_DIR=unused \
     PORT="$GR00T_PORT" \

@@ -30,4 +30,14 @@ else
   unset TASK2_RECORDING_INDEX
 fi
 
+# Use the Task2 SIMPLE scene with MuJoCo physics and Isaac Ego rendering while
+# keeping the GR00T -> Kimodo -> TextOp controller chain unchanged.
+if [[ "${TASK234_STRICT_ISAAC_EVAL:-0}" == "1" ]]; then
+  export FULLSTATE_GR00T_TASK="G1Fullstate20260805Task2IsaacEval-v0"
+  export FULLSTATE_GR00T_SIM_MODE="mujoco_isaac"
+  export SIMPLE_TASK_ASSETS_ROOT="${SIMPLE_TASK_ASSETS_ROOT:-/pfs/pfs-oHNwH0/mnt/pfs/humanoid/yzh/assets}"
+  export TASK2_INIT_FROM_RECORDINGS=0
+  export FULLSTATE_GR00T_EVAL_DIR="${FULLSTATE_TASK2_GR00T_EVAL_DIR:-data/evals_task2_20260805_strict_isaac_gr00t_kimodo_textop}"
+fi
+
 exec bash "$BASE_SCRIPT" "${1:-}"

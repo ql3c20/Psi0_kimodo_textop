@@ -52,4 +52,13 @@ TASK4_VARIANT_TAG="${TASK4_VARIANT_TAG:-${TASK4_CHECKPOINT_TAG}_${TASK4_INIT_TAG
 export FULLSTATE_GR00T_EVAL_DIR="${FULLSTATE_TASK4_GR00T_EVAL_DIR:-data/evals_fullstate_20260729_task4_gr00t_rot6d59_kimodo_textop_prefixrtc_grootclean_${TASK4_VARIANT_TAG}}"
 export FULLSTATE_GR00T_KIMODO_WORK_DIR="${FULLSTATE_TASK4_GR00T_KIMODO_WORK_DIR:-${PSI0_ROOT}/outputs/kimodo_fullstate_20260729_task4_gr00t_rot6d59_prefixrtc_grootclean_${TASK4_VARIANT_TAG}}"
 
+if [[ "${TASK234_STRICT_ISAAC_EVAL:-0}" == "1" ]]; then
+  export FULLSTATE_GR00T_TASK="G1Fullstate20260729Task4IsaacEval-v0"
+  export FULLSTATE_GR00T_SIM_MODE="mujoco_isaac"
+  export SIMPLE_TASK_ASSETS_ROOT="${SIMPLE_TASK_ASSETS_ROOT:-/pfs/pfs-oHNwH0/mnt/pfs/humanoid/yzh/assets}"
+  export TASK4_INIT_FROM_RECORDINGS=0
+  export TASK4_RANDOMIZE_BOTTLE=0
+  export FULLSTATE_GR00T_EVAL_DIR="${FULLSTATE_TASK4_GR00T_EVAL_DIR:-data/evals_task4_20260729_strict_isaac_gr00t_kimodo_textop}"
+fi
+
 exec bash "$BASE_SCRIPT" "${1:-}"
