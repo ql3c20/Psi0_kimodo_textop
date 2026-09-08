@@ -1,0 +1,49 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# GR00T N1.7 rot6d59 -> Kimodo -> TextOp in the SIMPLE Arena open-door scene.
+
+PSI0_ROOT="${PSI0_ROOT:-/pfs/pfs-oHNwH0/mnt/pfs/humanoid/yzh/Psi0}"
+GR00T_ROOT="${GR00T_ROOT:-/pfs/pfs-oHNwH0/mnt/pfs/humanoid/yzh/Isaac-GR00T}"
+BASE_SCRIPT="${PSI0_ROOT}/scripts/deploy/fullstate_arena_football_gr00t_rot6d59_kimodo_textop_eval.sh"
+
+export GR00T_MODEL_PATH="${GR00T_MODEL_PATH:-${GR00T_ROOT}/outputs/arena-open-door-sonic-gr00t-n17-rot6d59-v1-prefixrtc-delay0to12-4gpu-bs256-step20000/checkpoint-10000}"
+export FULLSTATE_GR00T_EVAL_LABEL="SIMPLE open-door"
+export FULLSTATE_GR00T_TASK="G1FullstateArenaOpenDoor-v0"
+export MAX_EPISODE_STEPS="${MAX_EPISODE_STEPS:-1800}"
+export GR00T_EXECUTION_HORIZON="${GR00T_EXECUTION_HORIZON:-30}"
+
+export ARENA_OPEN_DOOR_RAW_DIR="${ARENA_OPEN_DOOR_RAW_DIR:-/pfs/pfs-oHNwH0/mnt/pfs/humanoid/yzh/dataset/HumanoidArena_open_door/HSI_open_door}"
+export ARENA_OPEN_DOOR_RAW_BRANCH="${ARENA_OPEN_DOOR_RAW_BRANCH:-twist2/zz}"
+export ARENA_OPEN_DOOR_EVAL_PROFILE="${ARENA_OPEN_DOOR_EVAL_PROFILE:-recording}"
+export ARENA_OPEN_DOOR_INIT_FROM_DATA="${ARENA_OPEN_DOOR_INIT_FROM_DATA:-1}"
+export ARENA_OPEN_DOOR_RECORDING_SEED="${ARENA_OPEN_DOOR_RECORDING_SEED:-0}"
+export ARENA_OPEN_DOOR_USE_ARENA_USD_VISUALS="${ARENA_OPEN_DOOR_USE_ARENA_USD_VISUALS:-1}"
+export ARENA_OPEN_DOOR_LOG_RESETS="${ARENA_OPEN_DOOR_LOG_RESETS:-1}"
+export ARENA_OPEN_DOOR_INSTRUCTION="${ARENA_OPEN_DOOR_INSTRUCTION:-Press the door handle down and open the door.}"
+
+export OPEN_DOOR_HANDLE_UNLOCK_ANGLE_DEG="${OPEN_DOOR_HANDLE_UNLOCK_ANGLE_DEG:--20}"
+# HumanoidArena locks the leaf with a high-gain latch drive, then restores the
+# unlocked leaf to a frictionless, undriven hinge.
+export OPEN_DOOR_LEAF_UNLOCK_STIFFNESS="${OPEN_DOOR_LEAF_UNLOCK_STIFFNESS:-0}"
+export OPEN_DOOR_LEAF_UNLOCK_DAMPING="${OPEN_DOOR_LEAF_UNLOCK_DAMPING:-0}"
+export OPEN_DOOR_LEAF_UNLOCK_MAX_FORCE="${OPEN_DOOR_LEAF_UNLOCK_MAX_FORCE:-0}"
+export OPEN_DOOR_SUCCESS_LEAF_ANGLE_DEG="${OPEN_DOOR_SUCCESS_LEAF_ANGLE_DEG:-60}"
+
+if [[ "$ARENA_OPEN_DOOR_EVAL_PROFILE" == "recording" ]]; then
+  INIT_TAG="recordingseed${ARENA_OPEN_DOOR_RECORDING_SEED}"
+else
+  export ARENA_OPEN_DOOR_INIT_FROM_DATA=0
+  export ARENA_OPEN_DOOR_OBJECT_SEED="${ARENA_OPEN_DOOR_OBJECT_SEED:-0}"
+  INIT_TAG="${ARENA_OPEN_DOOR_EVAL_PROFILE}seed${ARENA_OPEN_DOOR_OBJECT_SEED}"
+fi
+if [[ -n "${ARENA_OPEN_DOOR_RECORDING_INDEX:-}" ]]; then
+  INIT_TAG="recording${ARENA_OPEN_DOOR_RECORDING_INDEX}"
+fi
+
+CHECKPOINT_TAG="${ARENA_OPEN_DOOR_CHECKPOINT_TAG:-${GR00T_MODEL_PATH##*/}}"
+VARIANT_TAG="${ARENA_OPEN_DOOR_VARIANT_TAG:-${CHECKPOINT_TAG}_${INIT_TAG}_exec${GR00T_EXECUTION_HORIZON}}"
+export FULLSTATE_GR00T_EVAL_DIR="${ARENA_OPEN_DOOR_GR00T_EVAL_DIR:-data/evals_arena_open_door_gr00t_rot6d59_kimodo_textop_${VARIANT_TAG}}"
+export FULLSTATE_GR00T_KIMODO_WORK_DIR="${ARENA_OPEN_DOOR_KIMODO_WORK_DIR:-${PSI0_ROOT}/outputs/kimodo_arena_open_door_${VARIANT_TAG}}"
+
+exec bash "$BASE_SCRIPT" "${1:-dry-run}"
