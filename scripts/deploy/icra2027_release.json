@@ -1,11 +1,11 @@
 {
-  "date": "2026-09-06",
+  "date": "2026-09-08",
   "author": "ql3c20 <2991357552@qq.com>",
   "repositories": {
     "SIMPLE_eval_env": {
       "url": "https://github.com/ql3c20/SIMPLE_eval_env.git",
       "branch": "icra2027",
-      "commit": "bd7e73bc04e6ff6c3c70bb31e15bcf9f199b361b"
+      "commit": "f19bc5a4d6d5defd0c8f98283c02bd43396986a9"
     },
     "Isaac-GR00T-rtc": {
       "url": "https://github.com/ql3c20/Isaac-GR00T-rtc.git",
@@ -15,17 +15,16 @@
     "HumanoidVLA_MJ": {
       "url": "https://github.com/ql3c20/HumanoidVLA_MJ.git",
       "branch": "icra2027",
-      "commit": "5a2cd171faa334aed697154bfcaf074e1fa2ef07"
+      "commit": "534107d62ca7fffb1620e83166ce5d50d81c99e2"
     }
   },
   "excluded": [
-    "recordings",
     "datasets",
     "videos",
     "weights",
     "TensorRT engines",
     "Python environments",
-    "HSSD scenes"
+    "full recording trajectories and Task5-6 initial recordings"
   ],
   "assets": {
     "repository": "HumanoidVLA_MJ",
@@ -44,5 +43,22 @@
     ],
     "mujoco_load": "9 task MJCF + 2 robot models passed",
     "closed_loop_evaluation": "not run"
+  },
+  "hssd_scenes": {
+    "repository": "SIMPLE_eval_env",
+    "path": "data/scenes/hssd",
+    "scene_ids": [
+      "102344250",
+      "102344280"
+    ],
+    "asset_files": 694,
+    "validation": "Recursive USD and texture dependencies resolve locally; gltf/pbr.mdl provided by Isaac Sim"
+  },
+  "initial_recordings": {
+    "repository": "HumanoidVLA_MJ",
+    "path": "mujoco_recordings",
+    "count": 486,
+    "csv_data_rows_per_recording": 1,
+    "xml_snapshots_per_recording": 2
   }
 }
