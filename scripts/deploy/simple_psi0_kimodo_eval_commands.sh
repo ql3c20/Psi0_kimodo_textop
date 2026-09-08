@@ -88,6 +88,15 @@ export TEXTOP_TASK="${TEXTOP_TASK:-Tracking-Flat-G1-ProjGravAnchorEEObs-Transfor
 # Set TEXTOP_POLICY_ROOT_EE=0 explicitly to recover Kimodo-FK root/EE references.
 export TEXTOP_POLICY_ROOT_EE="${TEXTOP_POLICY_ROOT_EE:-1}"
 
+restore_terminal_cursor() {
+  local restore_sequence=$'\033[0m\033[?25h'
+  if [[ -w /dev/tty ]]; then
+    printf '%s' "$restore_sequence" > /dev/tty 2>/dev/null || true
+  else
+    printf '%s' "$restore_sequence" >&2 || true
+  fi
+}
+
 TEXTOP_ONESTEP_TASK="${TEXTOP_ONESTEP_TASK:-Tracking-Flat-G1-ProjGravAnchorEEObsOneStep-TransformerVAE-NMMLP-v0}"
 TEXTOP_ONESTEP_RUN_DIR="${TEXTOP_ONESTEP_RUN_DIR:-$POLICYHAND_ROT6D59_RUN_DIR}"
 TEXTOP_ONESTEP_TRACKER_RUN="${TEXTOP_ONESTEP_TRACKER_RUN:-${TEXTOP_ROOT}/textop/2026-06-11_11-39-47_rgz_loco_manip_obj_transf_vae_1step_ddp_4gpu_gear_sonic_ads_naug}"
@@ -200,8 +209,62 @@ download_data() {
 }
 
 eval_simple() {
+  # Isaac/Kit shutdown can run after Rich's cleanup. This shell-level guard is
+  # deliberately the last writer to the controlling terminal.
+  trap restore_terminal_cursor EXIT
   cd "$SIMPLE_ROOT"
-  source .venv/bin/activate
+
+  # Prefer an explicitly requested interpreter. UV_PROJECT_ENVIRONMENT is
+  # commonly inherited from another checkout, so only trust it when it has
+  # the core modules needed by this SIMPLE + Isaac evaluation entrypoint.
+  SIMPLE_VENV_PYTHON="${SIMPLE_ROOT}/.venv/bin/python"
+  SIMPLE_PYTHON_FROM_UV=0
+  if [[ -n "${SIMPLE_PYTHON:-}" ]]; then
+    EVAL_PYTHON="$SIMPLE_PYTHON"
+  elif [[ -n "${UV_PROJECT_ENVIRONMENT:-}" && -x "${UV_PROJECT_ENVIRONMENT}/bin/python" ]]; then
+    EVAL_PYTHON="${UV_PROJECT_ENVIRONMENT}/bin/python"
+    SIMPLE_PYTHON_FROM_UV=1
+  else
+    EVAL_PYTHON="$SIMPLE_VENV_PYTHON"
+  fi
+
+  if [[ ! -x "$EVAL_PYTHON" ]]; then
+    echo "SIMPLE eval Python is not executable: $EVAL_PYTHON" >&2
+    echo "Set SIMPLE_PYTHON to a Python 3.10 environment with SIMPLE installed." >&2
+    return 1
+  fi
+
+  SIMPLE_IMPORT_CHECK='import importlib.util, sys; modules = ("tyro", "simple", "isaacsim", "gear_sonic"); sys.exit(any(importlib.util.find_spec(module) is None for module in modules))'
+  if ! "$EVAL_PYTHON" -c "$SIMPLE_IMPORT_CHECK" >/dev/null 2>&1; then
+    if [[ "$SIMPLE_PYTHON_FROM_UV" == "1" && -x "$SIMPLE_VENV_PYTHON" ]] \
+      && "$SIMPLE_VENV_PYTHON" -c "$SIMPLE_IMPORT_CHECK" >/dev/null 2>&1; then
+      echo "Ignoring UV_PROJECT_ENVIRONMENT=$UV_PROJECT_ENVIRONMENT: its Python is not a complete SIMPLE eval environment." >&2
+      echo "Falling back to $SIMPLE_VENV_PYTHON" >&2
+      EVAL_PYTHON="$SIMPLE_VENV_PYTHON"
+      SIMPLE_PYTHON_FROM_UV=0
+    else
+      echo "Incomplete SIMPLE eval Python: $EVAL_PYTHON" >&2
+      echo "Required modules: tyro, simple, isaacsim, gear_sonic." >&2
+      echo "Install the locked environment or set SIMPLE_PYTHON to the SIMPLE Python." >&2
+      return 1
+    fi
+  fi
+
+  export PATH="$(dirname "$EVAL_PYTHON"):${PATH}"
+  echo "SIMPLE eval Python: $EVAL_PYTHON"
+
+  if [[ "$SIMPLE_PYTHON_FROM_UV" == "0" ]]; then
+    # CuRobo is kept as a local source tree in this checkout. Keep the host
+    # NVIDIA/Isaac runtime untouched; overriding LD_LIBRARY_PATH here mixes
+    # incompatible URDF and driver libraries.
+    export PYTHONPATH="${SIMPLE_ROOT}/third_party/curobo/src:${PYTHONPATH:-}"
+    # PhysX requests the unversioned soname; expose only a shim to the
+    # host-mounted driver library and leave all other runtime libraries alone.
+    CUDA_SHIM_DIR="${SIMPLE_ROOT}/.runtime/host-libcuda"
+    mkdir -p "$CUDA_SHIM_DIR"
+    ln -sfn /lib/x86_64-linux-gnu/libcuda.so.1 "$CUDA_SHIM_DIR/libcuda.so"
+    export LD_LIBRARY_PATH="${CUDA_SHIM_DIR}:${LD_LIBRARY_PATH:-}"
+  fi
 
   export CUDA_VISIBLE_DEVICES="$EVAL_GPU"
   export OMNI_KIT_ACCEPT_EULA=Y
@@ -215,7 +278,7 @@ eval_simple() {
     VIDEO_FLAG="--no-save-video"
   fi
 
-  python "src/simple/cli/${ENTRY}" \
+  "$EVAL_PYTHON" "src/simple/cli/${ENTRY}" \
     "simple/${TASK}" \
     "$AGENT" \
     "$DR" \

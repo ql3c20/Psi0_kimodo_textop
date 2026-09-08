@@ -65,6 +65,22 @@ class GenerateRequest(BaseModel):
     start_qpos_mujoco: list[float] | None = None
 
 
+class _CachedTextEncoder:
+    """Cache the fixed task prompt without changing its encoded value."""
+
+    def __init__(self, encoder: Any) -> None:
+        self.encoder = encoder
+        self._cache: dict[tuple[str, ...], tuple[torch.Tensor, Any]] = {}
+
+    def __call__(self, texts: str | list[str]) -> tuple[torch.Tensor, Any]:
+        key = (texts,) if isinstance(texts, str) else tuple(texts)
+        if key not in self._cache:
+            features, lengths = self.encoder(texts)
+            self._cache[key] = (features.detach().cpu(), lengths)
+        features, lengths = self._cache[key]
+        return features.clone(), lengths.copy() if isinstance(lengths, list) else lengths
+
+
 class KimodoGenerationServer:
     def __init__(self) -> None:
         self.device = "cuda:0" if torch.cuda.is_available() else "cpu"
@@ -86,13 +102,17 @@ class KimodoGenerationServer:
         )
 
         if distill_config and distill_ckpt:
+            text_encoder_device = os.environ.get("KIMODO_TEXT_ENCODER_DEVICE", self.device)
             self.model = _build_model_from_distill(
                 distill_config_path=distill_config,
                 distill_ckpt_path=distill_ckpt,
                 device=self.device,
+                text_encoder_device=text_encoder_device,
             )
+            self.model.text_encoder = _CachedTextEncoder(self.model.text_encoder)
             print(
-                f"[kimodo-server] Loaded distill student config={distill_config} ckpt={distill_ckpt}",
+                f"[kimodo-server] Loaded distill student config={distill_config} ckpt={distill_ckpt} "
+                f"text_encoder_device={text_encoder_device}",
                 flush=True,
             )
         else:

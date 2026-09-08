@@ -232,73 +232,85 @@ class Server:
             raise KeyError(f"GR00T response is missing action {key!r}")
         return _btd(value)
 
+    def _predict(
+        self,
+        *,
+        state_value: Any,
+        image_value: Any,
+        instruction: str,
+        reset_history: bool = False,
+    ) -> np.ndarray:
+        state = _btd(state_value)
+        if state.shape[-1] != 46:
+            raise ValueError(f"Expected SONIC state46, got {state.shape}")
+
+        observation: dict[str, Any] = {
+            "video": {"ego_view": _video_bthwc(image_value)},
+            "state": {},
+            "language": {
+                "annotation.human.task_description": [[str(instruction)]]
+            },
+        }
+        for name, start, end in self.STATE_PARTS:
+            observation["state"][name] = state[..., start:end]
+
+        options: dict[str, Any] | None = None
+        if self.prefix_rtc:
+            if reset_history:
+                self.previous_normalized_action = None
+            if self.previous_normalized_action is not None:
+                options = {
+                    "rtc_prev_action": self.previous_normalized_action,
+                    "action_horizon": int(self.previous_normalized_action.shape[1]),
+                    "rtc_overlap_steps": self.rtc_overlap_steps,
+                }
+                print(
+                    "[gr00t-sonic-server] Prefix-RTC step: carry "
+                    f"tail[{self.action_exec_horizon}:{self.action_chunk_size}]"
+                )
+            else:
+                print(
+                    "[gr00t-sonic-server] Prefix-RTC reset/first step: "
+                    "unconditioned generation"
+                )
+
+        action, info = self.policy.get_action(observation, options)
+        if self.prefix_rtc:
+            normalized_pred = info.get("normalized_action_pred")
+            if normalized_pred is None:
+                raise RuntimeError(
+                    "Prefix-RTC policy did not return normalized_action_pred"
+                )
+            self.previous_normalized_action = np.asarray(
+                normalized_pred, dtype=np.float32
+            )
+
+        motion = self._pick(action, "motion_token")
+        left_hand = self._pick(action, "left_hand_joints")
+        right_hand = self._pick(action, "right_hand_joints")
+        output = np.concatenate([motion, left_hand, right_hand], axis=-1)
+        if output.shape[0] == 1:
+            output = output[0]
+        if output.ndim != 2 or output.shape[1] != 78:
+            raise ValueError(
+                f"Expected GR00T SONIC output (T, 78), got {output.shape}"
+            )
+        return output.astype(np.float32)
+
     def act(self, payload: dict[str, Any]) -> JSONResponse:
         try:
             request = _numpy_decode(payload)
-            state = _btd(request["state"]["sonic_state"])
-            if state.shape[-1] != 46:
-                raise ValueError(f"Expected SONIC state46, got {state.shape}")
-
             image_dict = request["image"]
             image = image_dict.get("ego_view", image_dict.get("rgb_head_stereo_left"))
             if image is None:
                 raise KeyError("Missing ego_view/rgb_head_stereo_left image")
-
-            observation: dict[str, Any] = {
-                "video": {"ego_view": _video_bthwc(image)},
-                "state": {},
-                "language": {
-                    "annotation.human.task_description": [[request["instruction"]]]
-                },
-            }
-            for name, start, end in self.STATE_PARTS:
-                observation["state"][name] = state[..., start:end]
-
-            options: dict[str, Any] | None = None
-            if self.prefix_rtc:
-                history = request.get("history") or {}
-                if isinstance(history, dict) and history.get("reset", False):
-                    self.previous_normalized_action = None
-                if self.previous_normalized_action is not None:
-                    options = {
-                        "rtc_prev_action": self.previous_normalized_action,
-                        "action_horizon": int(
-                            self.previous_normalized_action.shape[1]
-                        ),
-                        "rtc_overlap_steps": self.rtc_overlap_steps,
-                    }
-                    print(
-                        "[gr00t-sonic-server] Prefix-RTC step: carry "
-                        f"tail[{self.action_exec_horizon}:"
-                        f"{self.action_chunk_size}]"
-                    )
-                else:
-                    print(
-                        "[gr00t-sonic-server] Prefix-RTC reset/first step: "
-                        "unconditioned generation"
-                    )
-
-            action, info = self.policy.get_action(observation, options)
-            if self.prefix_rtc:
-                normalized_pred = info.get("normalized_action_pred")
-                if normalized_pred is None:
-                    raise RuntimeError(
-                        "Prefix-RTC policy did not return normalized_action_pred"
-                    )
-                self.previous_normalized_action = np.asarray(
-                    normalized_pred, dtype=np.float32
-                )
-
-            motion = self._pick(action, "motion_token")
-            left_hand = self._pick(action, "left_hand_joints")
-            right_hand = self._pick(action, "right_hand_joints")
-            output = np.concatenate([motion, left_hand, right_hand], axis=-1)
-            if output.shape[0] == 1:
-                output = output[0]
-            if output.ndim != 2 or output.shape[1] != 78:
-                raise ValueError(
-                    f"Expected GR00T SONIC output (T, 78), got {output.shape}"
-                )
+            history = request.get("history") or {}
+            output = self._predict(
+                state_value=request["state"]["sonic_state"],
+                image_value=image,
+                instruction=request["instruction"],
+                reset_history=isinstance(history, dict) and history.get("reset", False),
+            )
 
             return JSONResponse(
                 content=_numpy_encode(
@@ -312,10 +324,58 @@ class Server:
         except Exception as exc:
             return JSONResponse(status_code=500, content={"status": repr(exc)})
 
+    def infer(self, payload: dict[str, Any]) -> JSONResponse:
+        """Serve HumanoidArena's compact LeRobot-compatible JSON protocol."""
+        try:
+            observation = payload["observation"]
+            encoded_image = observation["images"]["front"]
+            shape = tuple(int(value) for value in encoded_image["shape"])
+            if len(shape) != 3 or shape[-1] != 3:
+                raise ValueError(f"Expected front RGB HWC shape, got {shape}")
+            dtype = np.dtype(encoded_image.get("dtype", "uint8"))
+            image = np.frombuffer(
+                b64decode(encoded_image["data_b64"]), dtype=dtype
+            )
+            expected_size = int(np.prod(shape))
+            if image.size != expected_size:
+                raise ValueError(
+                    f"Front RGB payload has {image.size} values, expected {expected_size}"
+                )
+            image = image.reshape(shape)
+            output = self._predict(
+                state_value=observation["state"],
+                image_value=image,
+                instruction=str(payload.get("task") or ""),
+            )
+            return JSONResponse(
+                content={
+                    "action_chunk": output.tolist(),
+                    "action_format": "sonic78",
+                    "prediction_horizon": int(output.shape[0]),
+                }
+            )
+        except Exception as exc:
+            return JSONResponse(status_code=500, content={"status": repr(exc)})
+
+    def reset(self, payload: dict[str, Any]) -> dict[str, Any]:
+        self.previous_normalized_action = None
+        return {"status": "ok", "seed": payload.get("seed")}
+
+    def health(self) -> dict[str, Any]:
+        return {
+            "status": "ok",
+            "model_path": str(self.cfg.model_path.resolve()),
+            "action_format": "sonic78",
+            "prediction_horizon": int(self.action_chunk_size),
+            "prefix_rtc": self.prefix_rtc,
+        }
+
     def run(self) -> None:
         app = FastAPI()
         app.post("/act")(self.act)
-        app.get("/health")(lambda: {"status": "ok"})
+        app.post("/infer")(self.infer)
+        app.post("/reset")(self.reset)
+        app.get("/health")(self.health)
         uvicorn.run(app, host=self.cfg.host, port=self.cfg.port)
 
 

@@ -145,7 +145,7 @@ class Config:
     # seeds the next generation so the new chunk continues from the unexecuted
     # tail of the previous one.
     #   overlap = action_chunk_size (Tp) - action_exec_horizon (Ta)
-    # e.g. Tp=40, Ta=34 -> overlap=6 (predict 40, execute 34, 6-frame carry-over).
+    # e.g. Tp=40, Ta=30 -> overlap=10 (predict 40, execute 30, 10-frame carry-over).
     #
     # Modes:
     #   --enable-rtc            official soft vel_strength freeze (needs frozen/ramp)
@@ -158,7 +158,7 @@ class Config:
     prefix_rtc_timestep_mode: str | None = None
     # Number of chunk frames the downstream SIMPLE executor consumes before it
     # re-requests (must match POLICY_EXECUTION_HORIZON on the client side).
-    action_exec_horizon: int = 34
+    action_exec_horizon: int = 30
     # Soft-freeze knobs for official --enable-rtc (ignored under --prefix-rtc).
     rtc_frozen_steps: int = 2
     rtc_ramp_rate: float = 2.0
@@ -529,8 +529,23 @@ class Server:
     def run(self) -> None:
         app = FastAPI()
         app.post("/act")(self.act)
-        app.get("/health")(lambda: {"status": "ok"})
+        app.post("/reset")(self.reset)
+        app.get("/health")(
+            lambda: {
+                "status": "ok",
+                "model_path": str(self.cfg.model_path.resolve()),
+                "action_chunk_size": self.action_chunk_size,
+                "action_exec_horizon": self.action_exec_horizon,
+                "rtc_overlap_steps": self.rtc_overlap_steps,
+                "prefix_rtc": self.prefix_rtc,
+            }
+        )
         uvicorn.run(app, host=self.cfg.host, port=self.cfg.port)
+
+    def reset(self) -> dict[str, Any]:
+        """Clear Prefix-RTC continuity at an episode boundary."""
+        self.previous_normalized_action = None
+        return {"status": "ok"}
 
 
 if __name__ == "__main__":
