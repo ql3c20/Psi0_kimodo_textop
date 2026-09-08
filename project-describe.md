@@ -17,6 +17,24 @@ RGB + state49 + instruction
 
 结论：本仓库没有在 `src/psi` 下重新定义 GR00T VLA。VLA 主体来自相邻仓库 `../Isaac-GR00T`；本仓库负责 rot6d59 数据/schema、GR00T HTTP bridge、Prefix-RTC runtime adapter、Kimodo server wrapper，以及 SIMPLE 侧 TextOp tracker 接入。
 
+## 环境与源码边界（2026-08-22）
+
+不要使用终端里的 `(base)` 启动训练、TensorRT 转换或评测；当前 `(base)` 是 Python 3.14，不符合两套 GR00T 源码要求。两套 GR00T 虽然包名相同，但源码和环境不能混用：
+
+| 链路 | 源码 | Python | 用途 |
+| --- | --- | --- | --- |
+| 本项目 rot6d59 | `/pfs/pfs-oHNwH0/mnt/pfs/humanoid/yzh/Isaac-GR00T` | `yzh/Isaac-GR00T/.venv/bin/python`（3.10.20） | 微调、Prefix-RTC、TensorRT 导出/构建、GR00T server |
+| 原生 GR00T-Sonic | `wzl/Psi0/third_party/Isaac-GR00T-N1.7-General-Release` | `wzl/Psi0/.venv-gr00t-n17-sonic-4gpu/bin/python`（3.12.13） | 原生 Sonic 微调、TensorRT、GR00T server；操作说明见 `wzl/Psi0/finetune-note.md` |
+| Kimodo | `/pfs/pfs-oHNwH0/mnt/pfs/humanoid/yzh/kimodo_my` | `yzh/miniconda3/envs/kimodo/bin/python`（3.10.20） | Kimodo generation server |
+| SIMPLE / TextOp | `third_party/SIMPLE` | `third_party/SIMPLE/.venv/bin/python`（3.10.20） | MuJoCo、IsaacSim、SONIC decoder、TextOp ONNX tracker |
+
+当前指定代码树中共有 11 个不同的环境目录；`yzh/Isaac-GR00T/.venv.bak-py310-20260731 -> .venv` 只是兼容软链，不另算一个环境：
+
+- 当前主链路可用：上表四个环境，以及不被当前链路直接调用的 `yzh/miniconda3/envs/text_tracker`。
+- 不完整或失效：`yzh/Psi0/.venv`、`yzh/Psi0/.venv-psi`、`yzh/Psi0/.venv-dp`、`yzh/Psi0/src/gr00t/.venv`、`yzh/miniconda3/envs/ardy`、`yzh/miniconda3/envs/humi_tracker`。
+- 原生 Sonic 的 SIMPLE eval wrapper 默认使用 `/usr/bin/python3.10` 并注入 yzh SIMPLE 的 site-packages；它是系统解释器，不计入虚拟环境数量。
+- 当前 TextOp 直接由 SIMPLE 进程通过 ONNX Runtime 执行，不需要单独启动 `text_tracker` 环境。
+
 ## VLA 定义位置
 
 GR00T VLA 的核心定义在 `../Isaac-GR00T`：
@@ -210,6 +228,8 @@ suffix cosine      = 0.999996
 PASS -- Prefix-RTC TRT matches PyTorch
 ```
 
+历史构建记录：2026-08-09 的 `prefix_rtc_full_pipeline` 和 2026-08-10 的 fused sampler 都使用当时名为 `.venv.bak-py310-20260731` 的 Python 3.10 环境。该物理环境现已迁移为正式的 `yzh/Isaac-GR00T/.venv`，旧名称只是兼容软链；今后的训练、TRT 转换和 server 命令统一写 `.venv` 或使用 `uv run --no-sync`。当前环境包含 TensorRT `10.15.1.29` 和 ONNX `1.20.1`。它没有安装 `onnxruntime`，因此日志中的 ORT 验证被跳过，但 TensorRT engine 构建及后续 PyTorch/TRT 数值验证均已通过。
+
 `scripts/deploy/fullstate_task4_gr00t_rot6d59_kimodo_textop_eval.sh` 默认已经设置：
 
 ```bash
@@ -231,7 +251,7 @@ cd /pfs/pfs-oHNwH0/mnt/pfs/humanoid/yzh/Psi0
 
 export PSI0_ROOT=/pfs/pfs-oHNwH0/mnt/pfs/humanoid/yzh/Psi0
 export GR00T_ROOT=/pfs/pfs-oHNwH0/mnt/pfs/humanoid/yzh/Isaac-GR00T
-export GR00T_PYTHON=$GR00T_ROOT/.venv.bak-py310-20260731/bin/python
+export GR00T_PYTHON=$GR00T_ROOT/.venv/bin/python
 
 export SERVE_GPU=6
 export GR00T_PORT=22096
@@ -305,7 +325,7 @@ new prefix_rtc_full_pipeline_sampler: mean_total=41.7 ms, sampler=15.3 ms, trt_l
 cd /pfs/pfs-oHNwH0/mnt/pfs/humanoid/yzh/Isaac-GR00T
 export CUDA_VISIBLE_DEVICES=6
 
-python scripts/deployment/build_trt_pipeline.py \
+uv run --no-sync python scripts/deployment/build_trt_pipeline.py \
   --model-path /pfs/pfs-oHNwH0/mnt/pfs/humanoid/yzh/Isaac-GR00T/outputs/task4-gr00t-n17-rot6d59-kimodo-textop-prefix-rtc-groot-clean/checkpoint-160000 \
   --dataset-path /pfs/pfs-oHNwH0/mnt/pfs/humanoid/yzh/Psi0/data/output/fullstate_20260729_task4_rot6d59 \
   --modality-config-path examples/unitree_g1_rot6d59_config.py \
@@ -393,4 +413,518 @@ Kimodo 中间结果在 Psi0 根目录下：
 
 ```bash
 /pfs/pfs-oHNwH0/mnt/pfs/humanoid/yzh/Psi0/third_party/SIMPLE/data/evals_fullstate_20260729_task4_gr00t_rot6d59_kimodo_textop_prefixrtc_grootclean_checkpoint-160000_recordingseed0_xoff0_yoff0
+```
+
+## HumanoidArena 足球与搬箱子
+
+### 数据位置
+
+- 足球原始数据：`/pfs/pfs-oHNwH0/mnt/pfs/humanoid/yzh/dataset/HumanoidArena_football/HOI_football_v2`
+- 足球 rot6d59：`/pfs/pfs-oHNwH0/mnt/pfs/humanoid/yzh/Psi0/data/output/arena_football_rot6d59`（100 episodes，66,669 帧）
+- 搬箱子原始数据：`/pfs/pfs-oHNwH0/mnt/pfs/humanoid/yzh/dataset/HumanoidArena_pp_box`
+- 搬箱子 rot6d59：`/pfs/pfs-oHNwH0/mnt/pfs/humanoid/yzh/Psi0/data/output/arena_pp_box_rot6d59`（200 episodes，115,053 帧）
+- 搬箱子 Sonic-only rot6d59：`/pfs/pfs-oHNwH0/mnt/pfs/humanoid/yzh/Psi0/data/output/arena_pp_box_sonic_rot6d59_v3`（100 episodes，69,176 帧）
+- 搬箱子 Sonic-only native realized：`/pfs/pfs-oHNwH0/mnt/pfs/humanoid/yzh/Psi0/data/output/arena_pp_box_sonic_native_realized_v1`（100 episodes，69,176 帧；由 `robot_qpos_before_decimation` 重新编码）
+
+搬箱子和足球使用相同的 `state52/action59` modality 与 schema，可以共用下面的训练配置。任务文本分别是 `Move toward the football and kick it.` 和 `Pick up the box and place it on the shelf.`。
+
+### Sonic-only 搬箱子 8 卡串行微调
+
+统一入口是 `scripts/train/gr00t/train_arena_pp_box_sonic_8gpu_sequential.sh`。它固定使用 8 卡、global batch 256、20,000 steps，先训练原生 Sonic，再训练 rot6d59 Prefix-RTC；第一条失败时不会启动第二条。rot6d59 使用 `groot_clean`，RTC delay 为 `[0, 12]`。两条链路都启用 W&B，并自动从输出目录中最新的 `checkpoint-*` 续训；达到 20,000 steps 的链路会自动跳过。首次训练前先运行 `scripts/data/convert_arena_pp_box_sonic_v2_all.sh` 生成 realized native 和 rot6d59 v3 数据集。
+
+```bash
+cd /pfs/pfs-oHNwH0/mnt/pfs/humanoid/yzh/Psi0
+
+# 只检查环境、数据与配置，不启动训练
+PREFLIGHT_ONLY=1 \
+  bash scripts/train/gr00t/train_arena_pp_box_sonic_8gpu_sequential.sh
+
+# 依次训练 native SONIC -> rot6d59 Prefix-RTC
+bash scripts/train/gr00t/train_arena_pp_box_sonic_8gpu_sequential.sh
+```
+
+原生 Sonic 以 wzl preset `finetune_arena_pp_box_sonic_native_v2_8gpu_bs256_step20000.yaml` 为基础；统一入口会显式覆盖 realized 数据集、experiment name、batch、steps 和保存间隔。rot6d59 的对应设置和 `TRAIN_RTC_MIN_DELAY=0`、`TRAIN_RTC_MAX_DELAY=12` 也在统一入口脚本中。global batch 256 在 8 卡下等于每卡 forward batch 32，gradient accumulation 为 1。
+
+默认输出：
+
+```text
+/pfs/pfs-oHNwH0/mnt/pfs/humanoid/wzl/Psi0/checkpoints/gr00t-n17-sonic-arena-pp-box-sonic-native-realized-v1-8gpu-bs256-step20000
+/pfs/pfs-oHNwH0/mnt/pfs/humanoid/yzh/Isaac-GR00T/outputs/arena-pp-box-sonic-gr00t-n17-rot6d59-v3-prefixrtc-delay0to12-8gpu-bs256-step20000
+```
+
+### GR00T N1.7 微调
+
+先在同一终端选择一组路径。
+
+足球：
+
+```bash
+DATASET_PATH=/pfs/pfs-oHNwH0/mnt/pfs/humanoid/yzh/Psi0/data/output/arena_football_rot6d59
+OUTPUT_DIR=/pfs/pfs-oHNwH0/mnt/pfs/humanoid/yzh/Isaac-GR00T/outputs/arena-football-gr00t-n17-rot6d59
+```
+
+搬箱子：
+
+```bash
+DATASET_PATH=/pfs/pfs-oHNwH0/mnt/pfs/humanoid/yzh/Psi0/data/output/arena_pp_box_rot6d59
+OUTPUT_DIR=/pfs/pfs-oHNwH0/mnt/pfs/humanoid/yzh/Isaac-GR00T/outputs/arena-pp-box-gr00t-n17-rot6d59
+```
+
+启动训练：
+
+```bash
+cd /pfs/pfs-oHNwH0/mnt/pfs/humanoid/yzh/Isaac-GR00T
+CUDA_VISIBLE_DEVICES=4,5,6,7 \
+NUM_GPUS=4 MASTER_PORT=29531 \
+MAX_STEPS=160000 SAVE_STEPS=10000 \
+GLOBAL_BATCH_SIZE=64 DATALOADER_NUM_WORKERS=4 \
+TRAIN_PREFIX_RTC=1 GR00T_PREFIX_RTC_TIMESTEP_MODE=groot_clean \
+GR00T_BACKBONE_PATH=/pfs/pfs-oHNwH0/mnt/pfs/humanoid/yzh/Psi0/huggingface/hub/models--nvidia--Cosmos-Reason2-2B/snapshots/9ce19a195e423419c349abfc86fd07178b230561 \
+HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 USE_WANDB=1 \
+uv run --no-sync bash examples/finetune.sh \
+  --base-model-path /pfs/pfs-oHNwH0/mnt/pfs/humanoid/yzh/Psi0/checkpoints/GR00T-N1.7-3B \
+  --dataset-path "$DATASET_PATH" \
+  --modality-config-path /pfs/pfs-oHNwH0/mnt/pfs/humanoid/yzh/Isaac-GR00T/examples/unitree_g1_rot6d59_config.py \
+  --embodiment-tag NEW_EMBODIMENT \
+  --output-dir "$OUTPUT_DIR" \
+  --wandb-project gr00t-n1.7
+```
+
+
+只用 twist2 搬箱子数据（100 条带完整视频的原始记录）：
+```bash
+cd /pfs/pfs-oHNwH0/mnt/pfs/humanoid/yzh/Isaac-GR00T
+CUDA_VISIBLE_DEVICES=4,5,6,7 \
+NUM_GPUS=4 MASTER_PORT=29531 \
+MAX_STEPS=160000 SAVE_STEPS=10000 \
+GLOBAL_BATCH_SIZE=32 DATALOADER_NUM_WORKERS=4 \
+TRAIN_PREFIX_RTC=1 \
+GR00T_PREFIX_RTC_TIMESTEP_MODE=groot_clean \
+GR00T_BACKBONE_PATH=/pfs/pfs-oHNwH0/mnt/pfs/humanoid/yzh/Psi0/huggingface/hub/models--nvidia--Cosmos-Reason2-2B/snapshots/9ce19a195e423419c349abfc86fd07178b230561 \
+HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 \
+USE_WANDB=1 \
+uv run --no-sync bash examples/finetune.sh \
+  --base-model-path /pfs/pfs-oHNwH0/mnt/pfs/humanoid/yzh/Psi0/checkpoints/GR00T-N1.7-3B \
+  --dataset-path /pfs/pfs-oHNwH0/mnt/pfs/humanoid/yzh/Psi0/data/output/arena_pp_box_twist2_rot6d59 \
+  --modality-config-path /pfs/pfs-oHNwH0/mnt/pfs/humanoid/yzh/Isaac-GR00T/examples/unitree_g1_rot6d59_config.py \
+  --embodiment-tag NEW_EMBODIMENT \
+  --output-dir /pfs/pfs-oHNwH0/mnt/pfs/humanoid/yzh/Isaac-GR00T/outputs/arena-pp-box-twist2-gr00t-n17-rot6d59 \
+  --wandb-project gr00t-n1.7
+```
+续训示例（保持与原训练相同的数据、batch size 和 Prefix-RTC 配置）：
+
+```bash
+cd /pfs/pfs-oHNwH0/mnt/pfs/humanoid/yzh/Isaac-GR00T
+CUDA_VISIBLE_DEVICES=4,5,6,7 \
+NUM_GPUS=4 \
+MASTER_PORT=29531 \
+MAX_STEPS=160000 \
+SAVE_STEPS=10000 \
+GLOBAL_BATCH_SIZE=32 \
+DATALOADER_NUM_WORKERS=4 \
+TRAIN_PREFIX_RTC=1 \
+GR00T_PREFIX_RTC_TIMESTEP_MODE=groot_clean \
+GR00T_BACKBONE_PATH=/pfs/pfs-oHNwH0/mnt/pfs/humanoid/yzh/Psi0/huggingface/hub/models--nvidia--Cosmos-Reason2-2B/snapshots/9ce19a195e423419c349abfc86fd07178b230561 \
+HF_HUB_OFFLINE=1 \
+TRANSFORMERS_OFFLINE=1 \
+USE_WANDB=1 \
+WANDB_RUN_ID=73jgz047 \
+WANDB_RESUME=allow \
+PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True \
+uv run --no-sync bash examples/finetune.sh \
+  --base-model-path /pfs/pfs-oHNwH0/mnt/pfs/humanoid/yzh/Psi0/checkpoints/GR00T-N1.7-3B \
+  --dataset-path /pfs/pfs-oHNwH0/mnt/pfs/humanoid/yzh/Psi0/data/output/arena_pp_box_twist2_rot6d59 \
+  --modality-config-path /pfs/pfs-oHNwH0/mnt/pfs/humanoid/yzh/Isaac-GR00T/examples/unitree_g1_rot6d59_config.py \
+  --embodiment-tag NEW_EMBODIMENT \
+  --output-dir /pfs/pfs-oHNwH0/mnt/pfs/humanoid/yzh/Isaac-GR00T/outputs/arena-pp-box-twist2-gr00t-n17-rot6d59 \
+  --wandb-project gr00t-n1.7 \
+  --resume-from-checkpoint
+```
+
+若端口或 GPU 已被占用，修改 `MASTER_PORT` 或 `CUDA_VISIBLE_DEVICES`；续训时在命令末尾加 `--resume-from-checkpoint`。
+
+### 足球闭环测试
+
+在 Psi0 根目录分别启动三个终端。`GR00T_PORT` 必须在 serve 和 eval 中一致；这里用 `22196` 避免与其他任务的 `22096` 冲突。
+
+```bash
+# 终端 1：足球 GR00T
+GR00T_PORT=22196 SERVE_GPU=1 \
+  bash scripts/deploy/fullstate_arena_football_gr00t_rot6d59_kimodo_textop_eval.sh serve
+
+# 终端 2：Kimodo
+KIMODO_GPU=2 \
+  bash scripts/deploy/fullstate_arena_football_gr00t_rot6d59_kimodo_textop_eval.sh kimodo-serve
+
+# 终端 3：SIMPLE MuJoCo + Isaac 闭环；固定使用0作为种子初始化场景
+GR00T_PORT=22196 EVAL_GPU=3 NUM_EPISODES=1  ARENA_FOOTBALL_RECORDING_SEED=0 \
+  bash scripts/deploy/fullstate_arena_football_gr00t_rot6d59_kimodo_textop_eval.sh eval
+```
+
+默认 checkpoint 是 `arena-football-gr00t-n17-rot6d59/checkpoint-160000`。结果保存在：
+
+```text
+third_party/SIMPLE/data/evals_arena_football_gr00t_rot6d59_kimodo_textop_<checkpoint>_<init_tag>/
+```
+
+可用 `ARENA_FOOTBALL_GR00T_EVAL_DIR=/absolute/path` 覆盖结果目录。
+
+### twist2 搬箱子闭环测试
+
+该环境只从原始 `twist2/yb` 中加载 NPZ 与 `vision_rgb_video_path` 均完整的 100 条记录；17 条缺视频记录和 117 条重录分支都不会参与初始化。场景并非在连续空间任意随机摆放：每个 episode 从这些训练记录读取第 0 帧的机器人、箱子和货架位姿，默认用 `ARENA_PP_BOX_RECORDING_SEED=0` 做无重复确定性排列，所有 box/shelf offset 默认为 0。因此当前成功率属于训练分布初始状态上的闭环评测，不是 held-out 泛化结果。MuJoCo 负责机器人、箱子、桌子和货架的物理碰撞，Isaac 仅渲染并同步 MuJoCo 位姿。成功条件是箱子完整落在货架中层、底面高度对齐且连续 8 帧稳定。
+
+在 Psi0 根目录启动三个终端：
+
+```bash
+# 可先检查 checkpoint、seed、horizon 和结果目录
+bash scripts/deploy/fullstate_arena_pp_box_gr00t_rot6d59_kimodo_textop_eval.sh dry-run
+
+# 终端 1：搬箱子 GR00T；默认使用 checkpoint-160000
+GR00T_PORT=22196 SERVE_GPU=1 \
+  bash scripts/deploy/fullstate_arena_pp_box_gr00t_rot6d59_kimodo_textop_eval.sh serve
+
+# 终端 2：Kimodo
+KIMODO_GPU=2 \
+  bash scripts/deploy/fullstate_arena_pp_box_gr00t_rot6d59_kimodo_textop_eval.sh kimodo-serve
+
+# 终端 3：SIMPLE MuJoCo + Isaac；固定使用完整记录中的第 0 条
+GR00T_PORT=22196 EVAL_GPU=3 NUM_EPISODES=1 ARENA_PP_BOX_RECORDING_INDEX=0 \
+  bash scripts/deploy/fullstate_arena_pp_box_gr00t_rot6d59_kimodo_textop_eval.sh eval
+```
+
+训练尚未到 160000 step 时，可以在 serve 和 eval 两端同时覆盖 checkpoint，例如：
+
+```bash
+GR00T_MODEL_PATH=/pfs/pfs-oHNwH0/mnt/pfs/humanoid/yzh/Isaac-GR00T/outputs/arena-pp-box-twist2-gr00t-n17-rot6d59/checkpoint-10000
+```
+
+不设置 `ARENA_PP_BOX_RECORDING_INDEX` 时，100 条完整记录按固定 seed 无重复轮换。rot6d59 GR00T 每次预测 40 帧、执行 34 帧，并把剩余 6 帧作为 Prefix-RTC 条件带入下一次预测。结果和逐 episode/总成功率默认保存在：
+
+```text
+third_party/SIMPLE/data/evals_arena_pp_box_gr00t_rot6d59_kimodo_textop_<checkpoint>_<init_tag>/
+third_party/SIMPLE/data/evals_arena_pp_box_gr00t_rot6d59_kimodo_textop_<checkpoint>_<init_tag>/eval_stats.txt
+```
+
+可用 `ARENA_PP_BOX_GR00T_EVAL_DIR=/absolute/path` 覆盖结果目录。
+
+与原生 Sonic 做公平的单场景比较时，两边设置相同的 `ARENA_PP_BOX_RECORDING_INDEX`；做完整 100 条比较时，两边都不设置 index，并统一使用 `ARENA_PP_BOX_RECORDING_SEED=0 NUM_EPISODES=100 EPISODE_START=0`。原生 Sonic 使用相同场景顺序，但当前执行策略是预测 40、执行 30、直接丢弃后 10 帧，不使用 Prefix-RTC。
+
+### HumanoidArena 原生环境中的 rot6d59 + Kimodo + TextOp
+
+原生 PP-box/football adapter 位于 HumanoidArena 的 `action_provider/action_provider_rot6d59_textop.py`。它从 Isaac Lab 直接构造训练时的 `state49`，调用本项目 rot6d59 server 得到 `40 x 59D` 动作，再沿用原来的 Kimodo 和 TextOp，最后按 joint name 把 29D body 与 14D hand target 写回 Isaac Lab。该路径不经过 Sonic decoder。wrapper 接口是 `{serve|kimodo-serve|eval|ground-truth|all|all-ground-truth|dry-run} [pp_box|football]`；省略任务参数时仍默认 `pp_box`。
+
+先用训练集 episode 0 做 ground-truth gate；它只启动 Kimodo，不启动 GR00T：
+
+```bash
+cd /pfs/pfs-oHNwH0/mnt/pfs/humanoid/yzh/Psi0
+EVAL_GPU=1 KIMODO_GPU=2 GROUND_TRUTH_MAX_STEPS=421 \
+  bash scripts/deploy/humanoidarena_gr00t_n17_rot6d59_kimodo_textop_eval.sh all-ground-truth
+```
+
+测试 checkpoint（默认 checkpoint-160000、seed 0、1 episode）：
+
+```bash
+cd /pfs/pfs-oHNwH0/mnt/pfs/humanoid/yzh/Psi0
+SERVE_GPU=0 EVAL_GPU=1 KIMODO_GPU=2 \
+  bash scripts/deploy/humanoidarena_gr00t_n17_rot6d59_kimodo_textop_eval.sh all
+```
+
+50 episodes 示例：
+
+```bash
+SERVE_GPU=0 EVAL_GPU=1 KIMODO_GPU=2 \
+EVAL_SEEDS="0 1 2 3 4" REPEATS_PER_SEED=10 MAX_STEPS=1300 \
+RESULTS_DIR=$PWD/evals/humanoidarena_pp_box_rot6d59_checkpoint160000_50ep \
+  bash scripts/deploy/humanoidarena_gr00t_n17_rot6d59_kimodo_textop_eval.sh all
+```
+
+足球先做训练集 recording 0 的 ground-truth gate 和 checkpoint 冒烟：
+
+```bash
+cd /pfs/pfs-oHNwH0/mnt/pfs/humanoid/yzh/Psi0
+
+EVAL_GPU=1 KIMODO_GPU=2 GROUND_TRUTH_MAX_STEPS=387 \
+GROUND_TRUTH_RESULTS_DIR=$PWD/evals/humanoidarena_football_rot6d59_ground_truth_recording0 \
+  bash scripts/deploy/humanoidarena_gr00t_n17_rot6d59_kimodo_textop_eval.sh all-ground-truth football
+
+ARENA_EVAL_PROFILE=recording0 SERVE_GPU=0 EVAL_GPU=1 KIMODO_GPU=2 \
+EVAL_SEEDS=0 REPEATS_PER_SEED=1 MAX_STEPS=1300 \
+RESULTS_DIR=$PWD/evals/humanoidarena_football_rot6d59_checkpoint160000_recording0_smoke1 \
+  bash scripts/deploy/humanoidarena_gr00t_n17_rot6d59_kimodo_textop_eval.sh all football
+```
+
+冒烟通过后，用训练数据位姿范围内的确定性场景测 50 episodes：
+
+```bash
+ARENA_EVAL_PROFILE=random SERVE_GPU=0 EVAL_GPU=1 KIMODO_GPU=2 \
+EVAL_SEEDS="0 1 2 3 4" REPEATS_PER_SEED=10 MAX_STEPS=1300 \
+RESULTS_DIR=$PWD/evals/humanoidarena_football_rot6d59_checkpoint160000_train_range_50ep \
+  bash scripts/deploy/humanoidarena_gr00t_n17_rot6d59_kimodo_textop_eval.sh all football
+```
+
+`recording0`、`random`、`benchmark_random` 分别对应固定的训练记录 0、训练数据位姿范围、HumanoidArena benchmark 位姿范围。足球默认 checkpoint 是 `arena-football-gr00t-n17-rot6d59/checkpoint-160000`，任务文本是 `Move toward the football and kick it.`。
+
+rot6d59 的 Prefix-RTC 保持 `predict 40 / execute 34 / carry 6`。逐 episode JSON 会额外记录 `initial_box_z`、`max_box_z` 和 `max_box_lift_m`；结果汇总和视频沿用 HumanoidArena 原生 runner 的 `episodes/`、`videos/`、`summary.json` 与 `final.csv` 目录结构。
+
+### 原生 GR00T-Sonic
+
+原生 Sonic 的训练、TensorRT 和闭环评测统一记录在 `/pfs/pfs-oHNwH0/mnt/pfs/humanoid/wzl/Psi0/finetune-note.md`。不要在本文件复制手工 `PYTHONPATH` 命令；使用 wzl wrapper，避免把原生 Python 3.12 server 与 rot6d59 Python 3.10 环境混用。
+
+```bash
+#测试自研链路开门
+cd /pfs/pfs-oHNwH0/mnt/pfs/humanoid/yzh/Psi0
+GR00T_PYTHON=/pfs/pfs-oHNwH0/mnt/pfs/humanoid/yzh/Isaac-GR00T/.venv/bin/python \
+GR00T_MODEL_PATH=/pfs/pfs-oHNwH0/mnt/pfs/humanoid/yzh/Isaac-GR00T/outputs/arena-open-door-sonic-gr00t-n17-rot6d59-v1-prefixrtc-delay0to12-4gpu-bs256-step20000/checkpoint-10000 \
+ARENA_EVAL_PROFILE=random \
+SERVE_GPU=0 \
+EVAL_GPU=1 \
+KIMODO_GPU=2 \
+GR00T_EXECUTION_HORIZON=30 \
+EVAL_SEEDS="0 1 2 3 4" \
+REPEATS_PER_SEED=10 \
+MAX_STEPS=1800 \
+RECORD_VIDEO_EVERY_N=5 \
+RESULTS_DIR=$PWD/evals/humanoidarena_open_door_rot6d59_ckpt10000_random_eval50-video \
+bash scripts/deploy/humanoidarena_gr00t_n17_rot6d59_kimodo_textop_eval.sh all open_door
+
+
+#测试sonic开门
+cd /pfs/pfs-oHNwH0/mnt/pfs/humanoid/wzl/Psi0
+
+checkpoints/gr00t-n17-sonic-arena-open-door-sonic-native-realized-v1-8gpu-bs512-step10000/checkpoint-10000
+
+GR00T_MODEL_PATH=$PWD/checkpoints/gr00t-n17-sonic-arena-open-door-sonic-native-v2-4gpu-bs256-step20000/checkpoint-20000 \
+ARENA_EVAL_PROFILE=random \
+SERVE_GPU=0 \
+EVAL_GPU=1 \
+GR00T_PORT=18443 \
+SONIC_VLA_EXECUTION_HORIZON=30 \
+EVAL_SEEDS="0 1 2 3 4" \
+REPEATS_PER_SEED=10 \
+MAX_STEPS=1800 \
+RECORD_VIDEO_EVERY_N=5 \
+RESULTS_DIR=$PWD/evals/humanoidarena_open_door_sonic_checkpoint20000_random_eval50 \
+bash scripts/deploy/humanoidarena_gr00t_n17_sonic_native_eval.sh open_door
+
+
+#重新测试新转换的数据的sonic开门
+cd /pfs/pfs-oHNwH0/mnt/pfs/humanoid/wzl/Psi0
+GR00T_MODEL_PATH=$PWD/checkpoints/gr00t-n17-sonic-arena-open-door-sonic-native-realized-v1-8gpu-bs512-step10000/checkpoint-10000 \
+ARENA_EVAL_PROFILE=random \
+SERVE_GPU=0 \
+EVAL_GPU=1 \
+SONIC_VLA_EXECUTION_HORIZON=30 \
+EVAL_SEEDS="0 1 2 3 4" \
+REPEATS_PER_SEED=10 \
+MAX_STEPS=1800 \
+RECORD_VIDEO_EVERY_N=1 \
+RESULTS_DIR=$PWD/evals/humanoidarena_open_door_sonic_native_realized_ckpt10000_random_exec30_eval50 \
+bash scripts/deploy/humanoidarena_gr00t_n17_sonic_native_eval.sh open_door
+
+
+#sonic开门 修改门阻尼后重测
+OPEN_DOOR_LEAF_UNLOCK_STIFFNESS=1.5 \
+OPEN_DOOR_LEAF_UNLOCK_DAMPING=5 \
+GR00T_MODEL_PATH=$PWD/checkpoints/gr00t-n17-sonic-arena-open-door-sonic-native-realized-v1-8gpu-bs512-step10000/checkpoint-10000 \
+ARENA_EVAL_PROFILE=random \
+SERVE_GPU=5 \
+EVAL_GPU=6 \
+GR00T_PORT=22095 \
+SONIC_VLA_EXECUTION_HORIZON=40 \
+EVAL_SEEDS="0 1 2 3 4" \
+REPEATS_PER_SEED=10 \
+MAX_STEPS=1800 \
+RECORD_VIDEO_EVERY_N=1 \
+RESULTS_DIR=$PWD/evals/humanoidarena_open_door_sonic_realized_ckpt10000_random_exec40_k1p5_d5_eval50 \
+bash scripts/deploy/humanoidarena_gr00t_n17_sonic_native_eval.sh open_door
+
+
+
+OPEN_DOOR_SUCCESS_LEAF_ANGLE_DEG=20 \
+OPEN_DOOR_LEAF_UNLOCK_STIFFNESS=1.5 \
+OPEN_DOOR_LEAF_UNLOCK_DAMPING=3 \
+GR00T_MODEL_PATH=$PWD/checkpoints/gr00t-n17-sonic-arena-open-door-twist2-sonic-native-realized-4gpu-bs512-step10000/checkpoint-10000 \
+ARENA_EVAL_PROFILE=random \
+SERVE_GPU=5 \
+EVAL_GPU=6 \
+GR00T_PORT=22095 \
+SONIC_VLA_EXECUTION_HORIZON=40 \
+EVAL_SEEDS="0 1 2 3 4" \
+REPEATS_PER_SEED=10 \
+MAX_STEPS=1700 \
+RECORD_VIDEO_EVERY_N=1 \
+RESULTS_DIR=$PWD/evals/humanoidarena_open_door_twist2_sonic_realized_ckpt10000_random_exec40_angle20_k1p5_d3_eval50 \
+bash scripts/deploy/humanoidarena_gr00t_n17_sonic_native_eval.sh open_door
+
+
+#自研链路开门 修改门阻尼
+cd /pfs/pfs-oHNwH0/mnt/pfs/humanoid/yzh/Psi0
+OPEN_DOOR_LEAF_UNLOCK_STIFFNESS=2.5 \
+OPEN_DOOR_LEAF_UNLOCK_DAMPING=10 \
+GR00T_MODEL_PATH=/pfs/pfs-oHNwH0/mnt/pfs/humanoid/yzh/Isaac-GR00T/outputs/arena-open-door-sonic-gr00t-n17-rot6d59-v1-prefixrtc-delay0to12-4gpu-bs256-step20000/checkpoint-10000 \
+ARENA_EVAL_PROFILE=random \
+SERVE_GPU=0 \
+EVAL_GPU=1 \
+KIMODO_GPU=2 \
+GR00T_EXECUTION_HORIZON=30 \
+EVAL_SEEDS="0 1 2 3 4" \
+REPEATS_PER_SEED=10 \
+MAX_STEPS=1800 \
+RECORD_VIDEO_EVERY_N=1 \
+RESULTS_DIR=$PWD/evals/humanoidarena_open_door_rot6d59_ckpt10000_random_exec30_k2p5_d10_eval50 \
+bash scripts/deploy/humanoidarena_gr00t_n17_rot6d59_kimodo_textop_eval.sh all open_door
+
+
+
+GR00T_MODEL_PATH=/pfs/pfs-oHNwH0/mnt/pfs/humanoid/yzh/Isaac-GR00T/outputs/arena-open-door-twist2-gr00t-n17-rot6d59-prefixrtc-delay0to12-4gpu-bs512-step10000 \
+ARENA_EVAL_PROFILE=random \
+SERVE_GPU=1 \
+EVAL_GPU=2 \
+KIMODO_GPU=3 \
+GR00T_EXECUTION_HORIZON=30 \
+EVAL_SEEDS="0 1 2 3 4" \
+REPEATS_PER_SEED=10 \
+MAX_STEPS=1800 \
+RECORD_VIDEO_EVERY_N=1 \
+RESULTS_DIR=$PWD/evals/humanoidarena_open_door_twist2_rot6d59_ckpt10000_random_exec30_eval50 \
+bash scripts/deploy/humanoidarena_gr00t_n17_rot6d59_kimodo_textop_eval.sh all open_door
+
+
+
+#测试自己链路踢足球，sonic数据训练
+cd /pfs/pfs-oHNwH0/mnt/pfs/humanoid/yzh/Psi0
+
+GR00T_MODEL_PATH=/pfs/pfs-oHNwH0/mnt/pfs/humanoid/yzh/Isaac-GR00T/outputs/arena-football-sonic-gr00t-n17-rot6d59-v2-prefixrtc-delay0to12-8gpu-bs512-step10000/checkpoint-10000 \
+ARENA_EVAL_PROFILE=random \
+SERVE_GPU=0 \
+EVAL_GPU=1 \
+KIMODO_GPU=2 \
+GR00T_EXECUTION_HORIZON=30 \
+EVAL_SEEDS="0 1 2 3 4" \
+REPEATS_PER_SEED=10 \
+MAX_STEPS=1300 \
+RECORD_VIDEO_EVERY_N=5 \
+RESULTS_DIR=$PWD/evals/humanoidarena_football_sonic_rot6d59_v2_ckpt10000_random_eval50 \
+bash scripts/deploy/humanoidarena_gr00t_n17_rot6d59_kimodo_textop_eval.sh all football
+```
+
+native SONIC 当前可以在调用 .sh 时覆盖 CUDA_VISIBLE_DEVICES、NUM_GPUS、MASTER_PORT、PRESET、DATASET_PATH 和 OUTPUT_DIR。但 MAX_STEPS、GLOBAL_BATCH_SIZE 等训练超参不能用同名环境变量直接覆盖，它们由 YAML preset 决定。需要动态更换时，可以通过 NATIVE_PRESET=/path/to/another.yaml 选择另一份配置
+
+
+用正确的sonic遥操数据latent训练sonic踢足球，
+```bash
+cd /pfs/pfs-oHNwH0/mnt/pfs/humanoid/wzl/Psi0
+
+CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7 \
+RUN_ROT6D=0 \
+RUN_NATIVE=1 \
+bash baselines/gr00t-n1.7/train_arena_football_sonic_v2_8gpu_sequential.sh
+```
+
+输出目录：
+  /pfs/pfs-oHNwH0/mnt/pfs/humanoid/wzl/Psi0/checkpoints/gr00t-n17-sonic-arena-football-sonic-native-realized-v1-8gpu-bs512-step10000
+
+
+测试 正确的latent训练的sonic踢球
+```bash
+GR00T_MODEL_PATH=/pfs/pfs-oHNwH0/mnt/pfs/humanoid/wzl/Psi0/checkpoints/gr00t-n17-sonic-arena-football-sonic-native-realized-v1-4gpu-bs512-step10000/checkpoint-10000 \
+RESULTS_DIR=/pfs/pfs-oHNwH0/mnt/pfs/humanoid/wzl/Psi0/evals/humanoidarena_football_sonic_native_realized_v1_4gpu_bs512_ckpt10000_goalframe_only_eval50-allvideo \
+SERVER_GPU=1 \
+EVAL_GPU=2 \
+SERVER_PORT=22207 \
+EVAL_SEEDS='0 1 2 3 4' \
+REPEATS_PER_SEED=10 \
+MAX_STEPS=1300 \
+RECORD_VIDEO_EVERY_N=1 \
+VIDEO_FPS=50 \
+SONIC_VLA_EXECUTION_HORIZON=30 \
+bash scripts/deploy/humanoidarena_football_gr00t_n17_sonic_eval.sh all
+```
+
+
+微调原生sonic，twist2数据开门任务
+```bash
+CUDA_VISIBLE_DEVICES=0,1,2,3 \
+NUM_GPUS=4 \
+MASTER_PORT=29548 \
+PRESET=$PWD/baselines/gr00t-n1.7/presets/train/finetune_arena_open_door_sonic_native_realized_v1_4gpu_bs256_step20000.yaml \
+DATASET_PATH=/pfs/pfs-oHNwH0/mnt/pfs/humanoid/yzh/Psi0/data/output/arena_open_door_twist2_sonic_native_realized \
+OUTPUT_DIR=$PWD/checkpoints \
+bash baselines/gr00t-n1.7/train_gr00t_n17_sonic_gr00t_new_4gpu.sh \
+  --experiment-name gr00t-n17-sonic-arena-open-door-twist2-sonic-native-realized-4gpu-bs512-step10000 \
+  --max-steps 10000 \
+  --save-steps 5000 \
+  --global-batch-size 512 \
+  --use-wandb
+```
+
+
+```bash
+#移植到SIMPLE中测试自研踢球sonic数据训练，修复场地纹理和相机视角
+cd /pfs/pfs-oHNwH0/mnt/pfs/humanoid/yzh/Psi0
+
+GR00T_MODEL_PATH=/pfs/pfs-oHNwH0/mnt/pfs/humanoid/yzh/Isaac-GR00T/outputs/arena-football-sonic-gr00t-n17-rot6d59-v2-prefixrtc-delay0to12-8gpu-bs512-step10000/checkpoint-10000 \
+ARENA_FOOTBALL_GR00T_EVAL_DIR=/pfs/pfs-oHNwH0/mnt/pfs/humanoid/yzh/Psi0/third_party/SIMPLE/data/evals_arena_football_sonic_rot6d59_v2_ckpt10000_recordingseed0 \
+SERVE_GPU=4 \
+KIMODO_GPU=5 \
+EVAL_GPU=6 \
+NUM_EPISODES=50 \
+bash scripts/deploy/fullstate_arena_football_gr00t_rot6d59_kimodo_textop_eval.sh all
+
+#移植到SIMPLE中测试自研踢球twist2数据训练
+GR00T_MODEL_PATH=/pfs/pfs-oHNwH0/mnt/pfs/humanoid/yzh/Isaac-GR00T/outputs/arena-football-gr00t-n17-rot6d59/checkpoint-160000 \
+ARENA_FOOTBALL_GR00T_EVAL_DIR=/pfs/pfs-oHNwH0/mnt/pfs/humanoid/yzh/Psi0/third_party/SIMPLE/data/evals_arena_football_twist2_rot6d59_ckpt160000_recordingseed0 \
+SERVE_GPU=2 \
+KIMODO_GPU=3 \
+EVAL_GPU=4 \
+NUM_EPISODES=50 \
+GR00T_PORT=22098 \
+KIMODO_SERVER_PORT=22186 \
+bash scripts/deploy/fullstate_arena_football_gr00t_rot6d59_kimodo_textop_eval.sh all
+
+
+#SIMPLE移植测试正确encode sonic踢球，sonic数据训练
+cd /pfs/pfs-oHNwH0/mnt/pfs/humanoid/yzh/Psi0
+GR00T_MODEL_PATH=/pfs/pfs-oHNwH0/mnt/pfs/humanoid/wzl/Psi0/checkpoints/gr00t-n17-sonic-arena-football-sonic-native-realized-v1-4gpu-bs512-step10000/checkpoint-10000 \
+ARENA_FOOTBALL_SONIC_EVAL_DIR=/pfs/pfs-oHNwH0/mnt/pfs/humanoid/wzl/Psi0/evals/simple_arena_football_sonic_native_realized_v1_ckpt10000_recordingseed0_cameraaligned \
+ARENA_FOOTBALL_RECORDING_SEED=0 \
+SERVE_GPU=2 \
+EVAL_GPU=1 \
+NUM_EPISODES=50 \
+MAX_EPISODE_STEPS=1000 \
+SAVE_VIDEO=1 \
+bash scripts/deploy/fullstate_arena_football_gr00t_n17_sonic_eval.sh all
+
+#twist数据训练的sonic踢球，SIMPLE移植测试
+cd /pfs/pfs-oHNwH0/mnt/pfs/humanoid/yzh/Psi0
+GR00T_MODEL_PATH=/pfs/pfs-oHNwH0/mnt/pfs/humanoid/wzl/Psi0/checkpoints/gr00t-n17-sonic-arena-football-native-4gpu/checkpoint-160000 \
+ARENA_FOOTBALL_SONIC_EVAL_DIR=/pfs/pfs-oHNwH0/mnt/pfs/humanoid/wzl/Psi0/evals/simple_arena_football_twist2_sonic_ckpt160000_recordingseed0_cameraaligned \
+ARENA_FOOTBALL_RECORDING_SEED=0 \
+SERVE_GPU=2 \
+EVAL_GPU=1 \
+NUM_EPISODES=50 \
+MAX_EPISODE_STEPS=1000 \
+SAVE_VIDEO=1 \
+GR00T_PORT=22098 \
+bash scripts/deploy/fullstate_arena_football_gr00t_n17_sonic_eval.sh all
+
+
+#限制足球初始位置随机范围，SIMPLE测试twist数据训练的踢足球
+cd /pfs/pfs-oHNwH0/mnt/pfs/humanoid/yzh/Psi0
+
+GR00T_MODEL_PATH=/pfs/pfs-oHNwH0/mnt/pfs/humanoid/wzl/Psi0/checkpoints/gr00t-n17-sonic-arena-football-native-4gpu/checkpoint-160000 \
+ARENA_FOOTBALL_SONIC_EVAL_DIR=/pfs/pfs-oHNwH0/mnt/pfs/humanoid/wzl/Psi0/evals/simple_arena_football_twist2_sonic_ckpt160000_ballrange_x0p4_y0p8to0p2_seed0 \
+ARENA_FOOTBALL_INIT_FROM_DATA=0 \
+ARENA_FOOTBALL_RANDOMIZE_BALL=1 \
+ARENA_FOOTBALL_OBJECT_SEED=0 \
+ARENA_FOOTBALL_BALL_X_RANGE="-0.4,0.4" \
+ARENA_FOOTBALL_BALL_Y_RANGE="-0.8,0.2" \
+SERVE_GPU=2 \
+EVAL_GPU=3 \
+GR00T_PORT=22123 \
+GR00T_EXECUTION_HORIZON=40 \
+NUM_EPISODES=50 \
+MAX_EPISODE_STEPS=1000 \
+SAVE_VIDEO=1 \
+bash scripts/deploy/fullstate_arena_football_gr00t_n17_sonic_eval.sh all
 ```

@@ -72,3 +72,4 @@ huggingface/
 # Local evaluation configs
 *_local.yaml
 *_local.yml
+evals/
