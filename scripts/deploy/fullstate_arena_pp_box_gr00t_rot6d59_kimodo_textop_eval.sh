@@ -58,7 +58,7 @@ export FULLSTATE_GR00T_SIM_MODE="${FULLSTATE_GR00T_SIM_MODE:-mujoco_isaac}"
 export MAX_EPISODE_STEPS="${MAX_EPISODE_STEPS:-1450}"
 
 export HUMANOID_ARENA_ROOT="${HUMANOID_ARENA_ROOT:-/pfs/pfs-oHNwH0/mnt/pfs/humanoid/yzh/HumanoidArena/isaaclab_twist2_g1}"
-export HUMANOID_ARENA_ISAAC_ASSET_ROOT="${HUMANOID_ARENA_ISAAC_ASSET_ROOT:-${HUMANOID_ARENA_ROOT}/assets1}"
+export HUMANOID_ARENA_ISAAC_ASSET_ROOT="${HUMANOID_ARENA_ISAAC_ASSET_ROOT:-${HUMANOID_ARENA_ROOT}/assets}"
 export ARENA_PP_BOX_USE_ARENA_USD_VISUALS="${ARENA_PP_BOX_USE_ARENA_USD_VISUALS:-1}"
 
 # Deliberately use only the original twist2 recordings with complete front MP4.

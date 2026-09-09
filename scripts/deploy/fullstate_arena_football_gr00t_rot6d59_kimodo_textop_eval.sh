@@ -60,9 +60,11 @@ fi
 export FULLSTATE_GR00T_TASK="${FULLSTATE_GR00T_TASK:-G1FullstateArenaFootball-v0}"
 export FULLSTATE_GR00T_SIM_MODE="${FULLSTATE_GR00T_SIM_MODE:-mujoco_isaac}"
 export MAX_EPISODE_STEPS="${MAX_EPISODE_STEPS:-1000}"
+export NUM_EPISODES="${NUM_EPISODES:-50}"
+export SAVE_VIDEO="${SAVE_VIDEO:-1}"
 
 export HUMANOID_ARENA_ROOT="${HUMANOID_ARENA_ROOT:-/pfs/pfs-oHNwH0/mnt/pfs/humanoid/yzh/HumanoidArena/isaaclab_twist2_g1}"
-export HUMANOID_ARENA_ISAAC_ASSET_ROOT="${HUMANOID_ARENA_ISAAC_ASSET_ROOT:-${HUMANOID_ARENA_ROOT}/assets1}"
+export HUMANOID_ARENA_ISAAC_ASSET_ROOT="${HUMANOID_ARENA_ISAAC_ASSET_ROOT:-${HUMANOID_ARENA_ROOT}/assets}"
 export ARENA_FOOTBALL_USE_ARENA_USD_VISUALS="${ARENA_FOOTBALL_USE_ARENA_USD_VISUALS:-1}"
 export ARENA_FOOTBALL_USE_GRASS_PBR="${ARENA_FOOTBALL_USE_GRASS_PBR:-1}"
 
@@ -73,6 +75,14 @@ export ARENA_FOOTBALL_RANDOMIZE_BALL="${ARENA_FOOTBALL_RANDOMIZE_BALL:-0}"
 export ARENA_FOOTBALL_LOG_RESETS="${ARENA_FOOTBALL_LOG_RESETS:-1}"
 export ARENA_FOOTBALL_ALLOW_INSTRUCTION_OVERRIDE="${ARENA_FOOTBALL_ALLOW_INSTRUCTION_OVERRIDE:-0}"
 export ARENA_FOOTBALL_INSTRUCTION="${ARENA_FOOTBALL_INSTRUCTION:-Kick the football into the goal.}"
+
+# Keep the Arena-aligned 640x480 front camera as the sole VLA input.  Record a
+# second camera from the same mount with unchanged vertical view and a wider
+# horizontal aperture for undistorted 16:9 videos.
+export ARENA_AUX_VIDEO_ENABLED="${ARENA_AUX_VIDEO_ENABLED:-1}"
+export ARENA_AUX_VIDEO_WIDTH="${ARENA_AUX_VIDEO_WIDTH:-1280}"
+export ARENA_AUX_VIDEO_HEIGHT="${ARENA_AUX_VIDEO_HEIGHT:-720}"
+export ARENA_AUX_VIDEO_HORIZONTAL_APERTURE="${ARENA_AUX_VIDEO_HORIZONTAL_APERTURE:-26.666666666666668}"
 
 if [[ -n "${ARENA_FOOTBALL_RECORDING_INDEX:-}" ]]; then
   export ARENA_FOOTBALL_RECORDING_INDEX
@@ -91,7 +101,11 @@ else
 fi
 
 CHECKPOINT_TAG="${ARENA_FOOTBALL_CHECKPOINT_TAG:-${GR00T_MODEL_PATH##*/}}"
-VARIANT_TAG="${ARENA_FOOTBALL_VARIANT_TAG:-${CHECKPOINT_TAG}_${INIT_TAG}}"
+VIDEO_TAG=""
+if [[ "$ARENA_AUX_VIDEO_ENABLED" == "1" ]]; then
+  VIDEO_TAG="_video${ARENA_AUX_VIDEO_WIDTH}x${ARENA_AUX_VIDEO_HEIGHT}_wide"
+fi
+VARIANT_TAG="${ARENA_FOOTBALL_VARIANT_TAG:-${CHECKPOINT_TAG}_${INIT_TAG}${VIDEO_TAG}}"
 export FULLSTATE_GR00T_EVAL_DIR="${FULLSTATE_GR00T_EVAL_DIR:-${ARENA_FOOTBALL_GR00T_EVAL_DIR:-data/evals_arena_football_gr00t_rot6d59_kimodo_textop_${VARIANT_TAG}}}"
 export FULLSTATE_GR00T_KIMODO_WORK_DIR="${FULLSTATE_GR00T_KIMODO_WORK_DIR:-${ARENA_FOOTBALL_GR00T_KIMODO_WORK_DIR:-${PSI0_ROOT}/outputs/kimodo_arena_football_gr00t_rot6d59_${VARIANT_TAG}}}"
 
@@ -321,7 +335,18 @@ dry_run() {
   echo "  gr00t=http://127.0.0.1:${GR00T_PORT} ($gr00t_port_state)"
   echo "  kimodo=http://${KIMODO_SERVER_HOST}:${KIMODO_SERVER_PORT} ($kimodo_port_state)"
   echo "  server_ready_timeout=${SERVER_READY_TIMEOUT}s"
-  echo "  recording_seed=$ARENA_FOOTBALL_RECORDING_SEED"
+  echo "  task=$FULLSTATE_GR00T_TASK episodes=$NUM_EPISODES save_video=$SAVE_VIDEO"
+  echo "  policy_camera=front_camera:640x480"
+  if [[ "$ARENA_AUX_VIDEO_ENABLED" == "1" ]]; then
+    echo "  video_camera=video_camera:${ARENA_AUX_VIDEO_WIDTH}x${ARENA_AUX_VIDEO_HEIGHT} horizontal_aperture=${ARENA_AUX_VIDEO_HORIZONTAL_APERTURE}"
+  else
+    echo "  video_camera=front_camera:640x480"
+  fi
+  if [[ "$FULLSTATE_GR00T_TASK" == "G1FullstateArenaOpenDoor-v0" ]]; then
+    echo "  recording_seed=${ARENA_OPEN_DOOR_RECORDING_SEED:-0} raw_branch=${ARENA_OPEN_DOOR_RAW_BRANCH:-}"
+  else
+    echo "  recording_seed=$ARENA_FOOTBALL_RECORDING_SEED"
+  fi
 }
 
 case "${1:-}" in
